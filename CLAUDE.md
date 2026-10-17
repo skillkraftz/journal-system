@@ -132,3 +132,30 @@ paper and centered the same way.
 - Keep code readable with settings at the top; the owner reads and tweaks it.
 - Include preview PNGs of new or changed pages in every PR that changes a
   design.
+
+## Commands
+
+Setup: `pip install -e '.[dev]'` (reportlab, pypdfium2, pillow; pytest and pypdf for tests).
+
+    python -m pocketjournal build [lined|dots|all]   # 52-page notebooks -> build/<book>/
+    python -m pocketjournal build lined --signatures 2 --thickness 0.12
+    python -m pocketjournal calibrate                # -> build/calibration/
+    python -m pytest                                 # tests
+
+Flags on both commands: `--out DIR`, `--thickness MM`, `--back-dx MM`, `--back-dy MM`.
+All defaults live in `pocketjournal/config.py` (`Settings`).
+
+Each book folder holds `print-first.pdf`, `print-second.pdf` (with several
+signatures: `sigN-print-first.pdf` / `sigN-print-second.pdf`, one pair per
+signature), `cover.pdf`, `pages.pdf` (pages at final size), `preview.png`
+(contact sheet) and `summary.txt`.
+
+Calibration: print `calibration-print-first.pdf`, reload as for a book, print
+`calibration-print-second.pdf`. Read the edge rulers for printer reach (raise
+`margin_top`/`margin_bottom` if needed) and hold to the light to read front/back
+misalignment; enter it as `back_offset_x`/`back_offset_y`.
+
+Layout of the package: `config` (design system), `draw` (mm vector wrapper),
+`page` (PageBox, grid), `pagetypes` (registry), `imposition` (order, centering,
+creep, duplex), `calibration`, `preview`, `book` (build a folder), `cli`.
+Previews of current designs are in `previews/`.
