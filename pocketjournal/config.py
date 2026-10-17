@@ -42,6 +42,8 @@ class Settings:
     structure_weight: float = 0.2    # outlines, separators: black
     rule_weight: float = 0.1         # writing lines: light gray, thin
     rule_gray: float = 0.70
+    separator_gray: float = 0.45     # lines between days: darker than writing rules
+    tint_gray: float = 0.93          # faint fill that marks weekends
     dot_radius: float = 0.16
     dot_gray: float = 0.55
     fine_weight: float = 0.08        # calibration rulers and crosshairs

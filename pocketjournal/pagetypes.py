@@ -92,3 +92,6 @@ def index(d: Draw, box: PageBox, ctx: PageContext) -> None:
     for row in range(g.rows - 2):
         d.line(g.x0, g.y(row), g.x1, g.y(row), s.rule_weight, s.rule_gray)
     d.line(split, g.y(0), split, head, s.structure_weight)
+
+
+from . import yearpages  # noqa: E402,F401  (registers the year journal page types)

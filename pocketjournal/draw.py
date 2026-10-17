@@ -71,6 +71,11 @@ class Draw:
             self._stroke(width, gray)
             self.c.rect(x * MM, y * MM, w * MM, h * MM, stroke=1, fill=0)
 
+    def fill_rect(self, x, y, w, h, gray: float):
+        with self.saved():
+            self.c.setFillGray(gray)
+            self.c.rect(x * MM, y * MM, w * MM, h * MM, stroke=0, fill=1)
+
     def circle(self, x, y, r, gray: float = 0.0, width: float | None = None):
         """Filled dot when width is None, otherwise an outline."""
         with self.saved():
@@ -82,12 +87,18 @@ class Draw:
                 self.c.circle(x * MM, y * MM, r * MM, stroke=1, fill=0)
 
     def text(self, x, y, string: str, size: float, bold=False, gray=0.0,
-             anchor: str = "l"):
-        """Text at baseline (x, y). anchor: l(eft), c(enter) or r(ight)."""
+             anchor: str = "l", rotate: float = 0):
+        """Text at baseline (x, y). anchor: l(eft), c(enter) or r(ight).
+        rotate turns it counterclockwise about (x, y): at 90 the text reads
+        upward and its letters extend to the left of the baseline."""
         size = max(size, self.s.font_min)
         with self.saved():
             self.c.setFillGray(gray)
             self.c.setFont(self.s.font_bold if bold else self.s.font_regular, size)
             draw = {"l": self.c.drawString, "c": self.c.drawCentredString,
                     "r": self.c.drawRightString}[anchor]
+            if rotate:
+                self.c.translate(x * MM, y * MM)
+                self.c.rotate(rotate)
+                x = y = 0
             draw(x * MM, y * MM, string)
