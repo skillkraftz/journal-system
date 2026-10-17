@@ -7,7 +7,8 @@ import pytest
 from pypdf import PdfReader
 
 from pocketjournal import imposition as imp
-from pocketjournal.book import build_book, library, write_pages_pdf
+from pocketjournal.book import build_book, write_pages_pdf
+from pocketjournal.recipe import build_book as expand, load_recipe
 from pocketjournal.calibration import write_calibration
 from pocketjournal.config import DEFAULT as S
 from pocketjournal.draw import Draw
@@ -16,6 +17,10 @@ from pocketjournal.pagetypes import PAGE_TYPES, get_page_type
 
 MM = 72 / 25.4
 DPI = 300
+
+
+def library(s):
+    return {n: expand(load_recipe(n), s) for n in ("lined", "dots")}
 
 
 def ink(path, page=0, dpi=DPI):
@@ -40,7 +45,7 @@ def page_labels(path):
 
 
 def test_registry():
-    assert {"blank", "lined", "dots"} <= set(PAGE_TYPES)
+    assert {"blank", "lined", "dots", "index"} <= set(PAGE_TYPES)
     with pytest.raises(KeyError):
         get_page_type("nope")
 
@@ -146,13 +151,13 @@ def test_nothing_in_trim_zone(tmp_path):
             n = len(PdfReader(str(out / pdf)).pages)
             for i in range(n):
                 m = ink(out / pdf, i)
-                assert m.any() or pdf == "cover.pdf"   # plain covers are blank
+                assert m.any()
                 zone = cols(thick.trim_zone) - 1
                 assert not m[:, :zone].any() and not m[:, -zone:].any()
 
 
 def test_nothing_in_page_margins(tmp_path):
-    for name in ("lined", "dots", "blank"):
+    for name in ("lined", "dots", "index", "blank"):
         for is_right in (True, False):
             path = tmp_path / f"{name}{is_right}.pdf"
             d = Draw(path, S.page_w, S.page_h, S)

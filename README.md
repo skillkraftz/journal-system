@@ -1,0 +1,66 @@
+# Pocket Journal System
+
+Print-ready PDFs for a hand-bound pocket notebook system. See `CLAUDE.md` for
+the physical process and design system.
+
+## Building books
+
+    pip install -e '.[dev]'
+    python -m pocketjournal                         # asks questions, then builds
+    python -m pocketjournal build lined dots        # same choices as flags
+    python -m pocketjournal build all               # every recipe that needs no date
+    python -m pocketjournal build monthly --year 2027 --month 3
+    python -m pocketjournal build monthly --year 2027 --all-months
+    python -m pocketjournal calibrate
+
+With no arguments the builder asks which book, the year and month (only for
+books that need them; `all` builds all 12 months), how many signatures and the
+paper thickness, shows a summary and waits for a yes. Flags answer the same
+questions: `--year`, `--month`, `--all-months`, `--signatures`, `--thickness`,
+`--out`.
+
+Each book gets its own folder under `build/` with `print-first.pdf`,
+`print-second.pdf`, `cover.pdf`, `pages.pdf`, a `preview.png` contact sheet,
+`cover.png` and a `summary.txt`.
+
+## Writing a recipe
+
+A recipe is a YAML file in `recipes/`. Its file name is the book's name on the
+command line. Nothing else needs code, as long as the page types exist
+(`blank`, `lined`, `dots`, `index`; see `pocketjournal/pagetypes.py`).
+
+```yaml
+name: sampler                # used for the output folder
+title: Sampler notebook      # shown in summary.txt
+page_numbers: true           # number every interior page (bottom outer corner)
+
+cover:                       # the two inside covers (default: blank)
+  front: blank
+  back: index                # a page type name, or {type: ..., params: {...}}
+
+pages:                       # fixed pages, in order
+  - type: dots
+    repeat: 4                # 4 pages in a row
+  - type: lined
+    params: {}               # passed to the page type
+  - type: lined
+    each: day                # one page per day of the chosen month
+                             # (`each: week`: one per week of the chosen year)
+
+fill:                        # pad with this type until the book has 52 pages
+  type: lined
+```
+
+Rules:
+
+- `repeat` makes that many pages per entry; with `each` it is that many per day
+  or week.
+- `each: day` makes the build ask for a year and month, `each: week` for a year.
+  The page type sees them as `ctx.date`, `ctx.week` (1-52, weeks run Sunday to
+  Saturday), `ctx.year` and `ctx.month`.
+- A book always has 52 interior pages. If the entries make fewer, add a `fill`;
+  more is an error.
+- Typos (unknown keys or page types) fail with a message naming the file.
+
+To add a page type, register a function with `@page_type("name")` in
+`pocketjournal/pagetypes.py`, then use it in a recipe.

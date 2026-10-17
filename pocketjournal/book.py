@@ -1,5 +1,6 @@
 """Books: an ordered list of page specs plus a cover, built into a folder of
 print-ready files."""
+import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -8,14 +9,18 @@ from . import imposition
 from .config import Settings
 from .draw import Draw
 from .page import PageBox, PageContext
-from .pagetypes import get_page_type
-from .preview import contact_sheet
+from .pagetypes import draw_page_number, get_page_type
+from .preview import contact_sheet, save_pages
 
 
 @dataclass(frozen=True)
 class PageSpec:
     type: str
     params: Mapping[str, Any] = field(default_factory=dict)
+    year: int | None = None
+    month: int | None = None
+    date: dt.date | None = None
+    week: int | None = None
 
 
 @dataclass(frozen=True)
@@ -23,30 +28,26 @@ class Book:
     name: str
     pages: tuple[PageSpec, ...]
     cover: tuple[PageSpec, PageSpec]   # inside front cover, inside back cover
-
-
-def plain_book(name: str, page_type: str, s: Settings) -> Book:
-    """A book of one repeated page type with blank inside covers."""
-    return Book(name, (PageSpec(page_type),) * s.book_pages,
-                (PageSpec("blank"), PageSpec("blank")))
-
-
-def library(s: Settings) -> dict[str, Book]:
-    return {"lined": plain_book("lined", "lined", s),
-            "dots": plain_book("dots", "dots", s)}
+    page_numbers: bool = False         # number the interior pages
+    title: str = ""
 
 
 def _draw_spec(d: Draw, spec: PageSpec, is_right: bool, number: int,
-               total: int, s: Settings) -> None:
-    ctx = PageContext(number, total, s, spec.params)
-    get_page_type(spec.type)(d, PageBox(s, is_right), ctx)
+               total: int, s: Settings, numbered: bool = False) -> None:
+    """number 0 is a cover page (never numbered)."""
+    ctx = PageContext(number, total, s, spec.params, spec.date, spec.year,
+                      spec.month, spec.week)
+    box = PageBox(s, is_right)
+    get_page_type(spec.type)(d, box, ctx)
+    if numbered and number:
+        draw_page_number(d, box, ctx)
 
 
 def write_pages_pdf(book: Book, path: Path, s: Settings) -> None:
     """Every interior page at final size, in order (for preview and checking)."""
     d = Draw(path, s.page_w, s.page_h, s)
     for n, spec in enumerate(book.pages, 1):
-        _draw_spec(d, spec, bool(n % 2), n, len(book.pages), s)
+        _draw_spec(d, spec, bool(n % 2), n, len(book.pages), s, book.page_numbers)
         d.next_page()
     d.save()
 
@@ -58,7 +59,7 @@ def build_book(book: Book, out_dir: Path, s: Settings, signatures: int = 1) -> d
     sigs = imposition.impose(total, s, signatures)
 
     def draw_page(d: Draw, n: int, is_right: bool) -> None:
-        _draw_spec(d, book.pages[n - 1], is_right, n, total, s)
+        _draw_spec(d, book.pages[n - 1], is_right, n, total, s, book.page_numbers)
 
     files = []
     for sig in sigs:
@@ -75,7 +76,9 @@ def build_book(book: Book, out_dir: Path, s: Settings, signatures: int = 1) -> d
     pages_pdf = out_dir / "pages.pdf"
     write_pages_pdf(book, pages_pdf, s)
     contact_sheet(pages_pdf, out_dir / "preview.png", s)
-    files += ["cover.pdf", "pages.pdf", "preview.png"]
+    save_pages(out_dir / "cover.pdf", out_dir, "cover", dpi=100)
+    (out_dir / "cover-01.png").replace(out_dir / "cover.png")
+    files += ["cover.pdf", "pages.pdf", "preview.png", "cover.png"]
 
     summary = _summary(book, sigs, s, files)
     (out_dir / "summary.txt").write_text(summary)
@@ -85,8 +88,9 @@ def build_book(book: Book, out_dir: Path, s: Settings, signatures: int = 1) -> d
 def _summary(book: Book, sigs, s: Settings, files) -> str:
     sheets = sum(len(g.sheets) for g in sigs)
     lines = [
-        f"Book: {book.name}",
-        f"Pages: {len(book.pages)} interior ({sheets} sheets in {len(sigs)} signature(s))",
+        f"Book: {book.title or book.name}",
+        f"Pages: {len(book.pages)} interior ({sheets} sheets in {len(sigs)} signature(s))"
+        + (", numbered" if book.page_numbers else ""),
         f"Page size: {s.page_w:.1f} x {s.page_h:.1f} mm, on {s.sheet_w:.1f} x {s.sheet_h:.1f} mm sheets",
         f"Margins: top {s.margin_top}, bottom {s.margin_bottom}, "
         f"fore-edge {s.margin_fore}, gutter {s.margin_gutter} mm; grid {s.grid} mm",

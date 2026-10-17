@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 INCH = 25.4
-FONT_DIR = Path(__file__).resolve().parent.parent / "fonts"
+ROOT = Path(__file__).resolve().parent.parent
+FONT_DIR = ROOT / "fonts"
+RECIPE_DIR = ROOT / "recipes"      # one YAML file per book
 
 
 @dataclass(frozen=True)

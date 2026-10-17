@@ -137,7 +137,8 @@ paper and centered the same way.
 
 Setup: `pip install -e '.[dev]'` (reportlab, pypdfium2, pillow; pytest and pypdf for tests).
 
-    python -m pocketjournal build [lined|dots|all]   # 52-page notebooks -> build/<book>/
+    python -m pocketjournal                          # asks questions, then builds
+    python -m pocketjournal build [lined|dots|all]   # recipes/*.yaml -> build/<book>/
     python -m pocketjournal build lined --signatures 2 --thickness 0.12
     python -m pocketjournal calibrate                # -> build/calibration/
     python -m pytest                                 # tests
@@ -155,7 +156,7 @@ Calibration: print `calibration-print-first.pdf`, reload as for a book, print
 `margin_top`/`margin_bottom` if needed) and hold to the light to read front/back
 misalignment; enter it as `back_offset_x`/`back_offset_y`.
 
-Layout of the package: `config` (design system), `draw` (mm vector wrapper),
+Layout of the package: `config` (design system), `recipe` (YAML recipes -> books), `calendars` (weeks), `draw` (mm vector wrapper),
 `page` (PageBox, grid), `pagetypes` (registry), `imposition` (order, centering,
-creep, duplex), `calibration`, `preview`, `book` (build a folder), `cli`.
+creep, duplex), `calibration`, `preview`, `book` (build a folder), `cli` (questions and flags). Recipes live in `recipes/`; the README explains how to write one.
 Previews of current designs are in `previews/`.

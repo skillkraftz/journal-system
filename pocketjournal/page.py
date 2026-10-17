@@ -96,7 +96,9 @@ class PageContext:
     total_pages: int
     settings: Settings
     params: Mapping[str, Any] = field(default_factory=dict)
-    # filled in by dated books later
+    # filled in by recipes: `each: day` sets date, `each: week` sets date
+    # (the week's Sunday) and week (1-52); year and month come from the build
     date: dt.date | None = None
     year: int | None = None
     month: int | None = None
+    week: int | None = None

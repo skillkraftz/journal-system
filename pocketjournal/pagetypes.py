@@ -46,3 +46,49 @@ def dots(d: Draw, box: PageBox, ctx: PageContext) -> None:
     for row in range(g.rows + 1):
         for col in range(g.cols + 1):
             d.circle(g.x(col), g.y(row), s.dot_radius, s.dot_gray)
+
+
+def draw_page_number(d: Draw, box: PageBox, ctx: PageContext) -> None:
+    """The page number, in the bottom outer corner, centered in the bottom
+    margin so it never touches the writing area. Books turn this on with
+    `page_numbers: true`; it is not a page type."""
+    s = ctx.settings
+    size_mm = s.font_page_number * 25.4 / 72
+    baseline = (s.margin_bottom - 0.62 * size_mm) / 2     # 0.62: cap height / size
+    if box.is_right:
+        d.text(box.x1, baseline, str(ctx.page_number), s.font_page_number, anchor="r")
+    else:
+        d.text(box.x0, baseline, str(ctx.page_number), s.font_page_number, anchor="l")
+
+
+@page_type("index")
+def index(d: Draw, box: PageBox, ctx: PageContext) -> None:
+    """A universal index: page number column and topic area, one entry per
+    3 mm row, with a small date-range field in the top row.
+
+    params: number_cols (grid columns for the page number column, default 3)
+    """
+    s, g = ctx.settings, box.grid_area()
+    split = g.x(int(ctx.params.get("number_cols", 3)))
+    head = g.y(g.rows - 2)                      # bottom of the two header rows
+    base = lambda row_bottom: row_bottom + 0.7  # text baseline inside a row
+
+    # row 0: title and "dates ____ - ____"
+    top = base(g.y(g.rows - 1))
+    d.text(g.x0, top, "INDEX", s.font_label, bold=True)
+    f2, f1 = (g.x(g.cols - 5), g.x1), (g.x(g.cols - 11), g.x(g.cols - 6))
+    d.text(f1[0] - 1.5, top, "dates", s.font_label, gray=0.4, anchor="r")
+    for a, b in (f1, f2):
+        d.line(a, g.y(g.rows - 1), b, g.y(g.rows - 1), s.rule_weight, s.rule_gray)
+    d.text((f1[1] + f2[0]) / 2, top, "-", s.font_label, gray=0.4, anchor="c")
+
+    # row 1: column labels, then a black line under the header
+    row1 = base(g.y(g.rows - 2))
+    d.text((g.x0 + split) / 2, row1, "pg", s.font_label, gray=0.4, anchor="c")
+    d.text(split + 1.0, row1, "topic", s.font_label, gray=0.4)
+    d.line(g.x0, head, g.x1, head, s.structure_weight)
+
+    # entries
+    for row in range(g.rows - 2):
+        d.line(g.x0, g.y(row), g.x1, g.y(row), s.rule_weight, s.rule_gray)
+    d.line(split, g.y(0), split, head, s.structure_weight)
