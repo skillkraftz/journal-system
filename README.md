@@ -27,7 +27,8 @@ Each book gets its own folder under `build/` with `print-first.pdf`,
 
 A recipe is a YAML file in `recipes/`. Its file name is the book's name on the
 command line. Nothing else needs code, as long as the page types exist
-(`blank`, `lined`, `dots`, `index`; see `pocketjournal/pagetypes.py`).
+(`blank`, `lined`, `dots`, `index`, and the year journal's `week`, `year_goals`,
+`year_index`; see `pocketjournal/pagetypes.py`).
 
 ```yaml
 name: sampler                # used for the output folder
@@ -64,3 +65,16 @@ Rules:
 
 To add a page type, register a function with `@page_type("name")` in
 `pocketjournal/pagetypes.py`, then use it in a recipe.
+
+## The year journal
+
+    python -m pocketjournal build year --year 2027
+
+`recipes/year.yaml`: 52 numbered weekly pages (Sunday to Saturday), the year's
+goals and all 52 weeks on the inside front cover, and a month-divided index on
+the inside back cover. The `week` page takes `params: {style: ...}`, which only
+changes how days are labeled so a 3" post-it can cover the page and the dates
+still show: `rail` (default; dates in a 6 mm rail at the outer edge), `corner`
+(small label at the start of each day) or `strip` (all seven dates under the
+header). The covers are meant to be read with the book turned a quarter turn
+clockwise.

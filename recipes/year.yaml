@@ -1,0 +1,16 @@
+# The year journal: 52 weekly pages (Sunday to Saturday), numbered, with the
+# year's goals and all 52 weeks on the inside front cover and a month-divided
+# index on the inside back cover. Needs a year: `build year --year 2027`.
+name: year
+title: Year journal
+page_numbers: true
+
+cover:
+  front: year_goals
+  back: year_index
+
+pages:
+  - type: week
+    each: week             # one page per week, 1-52
+    params:
+      style: rail          # rail | corner | strip (see README)

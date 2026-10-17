@@ -26,3 +26,18 @@ def days_of_month(year: int, month: int) -> list[dt.date]:
         raise ValueError(f"month must be 1-12, got {month}")
     return [dt.date(year, month, d)
             for d in range(1, calendar.monthrange(year, month)[1] + 1)]
+
+
+def month_starts(year: int) -> list[float]:
+    """Where each month starts on the year index, in weeks from the top of
+    week 1, snapped to half weeks, plus the end (52.0): 13 numbers.
+
+    A month starting on a week's 1st-2nd day snaps to that week's top, 3rd-5th
+    to its middle, 6th-7th to the next week. January always starts at 0."""
+    week1 = week_start(year, 1)
+    starts = [0.0]
+    for month in range(2, 13):
+        week, day = divmod((dt.date(year, month, 1) - week1).days, 7)
+        starts.append(min(float(WEEKS_PER_YEAR),
+                          week + (0 if day <= 1 else 0.5 if day <= 4 else 1)))
+    return starts + [float(WEEKS_PER_YEAR)]

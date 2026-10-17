@@ -220,3 +220,71 @@ def test_interview_undated_skips_date_questions(monthly_dir):
 def test_interview_can_decline(monthly_dir):
     assert cli.interview(S, monthly_dir, ask=answers("plain", "", "", "", "n"),
                          say=lambda *_: None) is None
+
+
+# ---- year journal ---------------------------------------------------------------
+
+def test_month_starts_snap_to_half_weeks():
+    # 2027: week 1 starts Sun Dec 27; Feb 1 is a Monday (2nd day) -> top of week 6
+    starts = calendars.month_starts(2027)
+    assert len(starts) == 13 and starts[0] == 0 and starts[-1] == 52
+    assert starts[1] == 5.0
+    assert all(b > a for a, b in zip(starts, starts[1:]))
+    assert all(x * 2 == int(x * 2) for x in starts)
+    # 3rd-5th day -> middle, 6th-7th day -> next week (2026: week 1 starts Dec 28)
+    week1 = calendars.week_start(2026, 1)
+    for m, s in enumerate(calendars.month_starts(2026)[1:12], 2):
+        week, dow = divmod((dt.date(2026, m, 1) - week1).days, 7)
+        assert s == week + (0 if dow < 2 else 0.5 if dow < 5 else 1)
+
+
+def test_year_recipe():
+    book = build_book(load_recipe("year"), S, 2027)
+    assert len(book.pages) == 52 and book.page_numbers
+    assert {p.type for p in book.pages} == {"week"}
+    assert [p.type for p in book.cover] == ["year_goals", "year_index"]
+    assert book.cover[0].year == 2027
+    with pytest.raises(RecipeError, match="needs a year"):
+        build_book(load_recipe("year"), S)
+
+
+@pytest.mark.parametrize("style", ["rail", "corner", "strip"])
+@pytest.mark.parametrize("is_right", [True, False])
+def test_year_pages_stay_in_margins(tmp_path, style, is_right):
+    box = PageBox(S, is_right)
+    ctx = PageContext(7, 52, S, {"style": style}, calendars.week_start(2027, 6), 2027, None, 6)
+    for name in ("week", "year_goals", "year_index"):
+        path = tmp_path / f"{name}.pdf"
+        d = Draw(path, S.page_w, S.page_h, S)
+        get_page_type(name)(d, box, ctx)
+        d.next_page()
+        d.save()
+        img = pdfium.PdfDocument(str(path))[0].render(scale=300 / 72).to_pil().convert("L")
+        m = np.array(img) < 250
+        h, w = m.shape
+        assert m.any()
+        tol = 2
+        assert not m[:px(S.margin_top) - tol].any()
+        assert not m[h - px(S.margin_bottom) + tol:].any()
+        assert not m[:, :px(box.margin_left) - tol].any()
+        assert not m[:, w - px(box.margin_right) + tol:].any()
+
+
+def test_week_page_dates_and_unknown_style(tmp_path):
+    book = build_book(load_recipe("year"), S, 2027)
+    pdf = tmp_path / "y.pdf"
+    write_pages_pdf(book, pdf, S)
+    text = PdfReader(str(pdf)).pages[5].extract_text()      # week 6: Jan 31 - Feb 6
+    assert "WEEK 6" in text and "JAN / FEB" in text and "FEB" in text
+    for day in ("31", "1", "2", "3", "4", "5", "6"):
+        assert day in text.split()
+    with pytest.raises(ValueError, match="style"):
+        ctx = PageContext(1, 52, S, {"style": "nope"}, dt.date(2027, 1, 3), 2027, None, 1)
+        get_page_type("week")(Draw(tmp_path / "x.pdf", S.page_w, S.page_h, S),
+                              PageBox(S, True), ctx)
+
+
+def test_rail_leaves_room_for_a_postit():
+    from pocketjournal.yearpages import RAIL_COLS
+    box = PageBox(S, True)
+    assert RAIL_COLS * S.grid + 3 * 25.4 <= box.content_w
