@@ -288,3 +288,94 @@ def test_rail_leaves_room_for_a_postit():
     from pocketjournal.yearpages import RAIL_COLS
     box = PageBox(S, True)
     assert RAIL_COLS * S.grid + 3 * 25.4 <= box.content_w
+
+
+# ---- monthly journal --------------------------------------------------------------
+
+@pytest.mark.parametrize("day,week", [
+    (dt.date(2027, 3, 6), 10), (dt.date(2027, 1, 2), 1), (dt.date(2026, 12, 27), 1),
+    (dt.date(2026, 12, 19), 51), (dt.date(2026, 12, 26), 52), (dt.date(2024, 12, 29), 1),
+])
+def test_week_number(day, week):
+    assert calendars.week_number(day) == week
+
+
+def test_week_number_matches_week_start():
+    for year in (2025, 2026, 2027):
+        for w, sunday in calendars.weeks_of_year(year):
+            assert calendars.week_number(sunday) == w
+            assert calendars.week_number(sunday + dt.timedelta(6)) == w
+
+
+@pytest.mark.parametrize("year", [2026, 2027, 2028])
+def test_monthly_recipe_every_month(year):
+    r = load_recipe("monthly")
+    assert r.needs == ("year", "month")
+    for month in range(1, 13):
+        book = build_book(r, S, year, month)
+        assert len(book.pages) == 52 and book.page_numbers
+        days = calendars.days_of_month(year, month)
+        types = [p.type for p in book.pages]
+        assert types.count("daily") == len(days)
+        sats = [d for d in days if d.weekday() == 5]
+        reflections = [(i, p) for i, p in enumerate(book.pages) if p.type == "week_reflection"]
+        assert len(reflections) == len(sats)
+        for (i, p), sat in zip(reflections, sats):
+            assert book.pages[i - 1].date == sat           # right after the Saturday
+            assert p.date == sat - dt.timedelta(6)
+            assert p.week == calendars.week_number(sat)
+        assert types[len(days) + len(sats):][:2] == ["month_review", "someday"]
+        assert types[-1] == "lined"
+        assert [p.type for p in book.cover] == ["monthly_tracker", "quick_reference"]
+        assert book.cover[0].month == month
+
+
+def test_after_saturday_rules():
+    with pytest.raises(RecipeError, match="each: day"):
+        parse_recipe({"name": "t", "pages": [{"type": "lined", "after_saturday": "blank"}]})
+    with pytest.raises(RecipeError, match="only allowed"):
+        parse_recipe({"name": "t", "cover": {"front": {"type": "lined", "after_saturday": "blank"}}})
+
+
+def test_monthly_pages_stay_in_margins(tmp_path):
+    book = build_book(load_recipe("monthly"), S, 2027, 2)       # 28 days
+    ctx_for = lambda spec: PageContext(7, 52, S, spec.params, spec.date, spec.year,
+                                       spec.month, spec.week)
+    specs = list(book.cover) + [next(p for p in book.pages if p.type == t) for t in
+                                ("daily", "week_reflection", "month_review", "someday")]
+    for spec in specs:
+        for is_right in (True, False):
+            box = PageBox(S, is_right)
+            path = tmp_path / f"{spec.type}{is_right}.pdf"
+            d = Draw(path, S.page_w, S.page_h, S)
+            get_page_type(spec.type)(d, box, ctx_for(spec))
+            d.next_page()
+            d.save()
+            img = pdfium.PdfDocument(str(path))[0].render(scale=300 / 72).to_pil().convert("L")
+            m = np.array(img) < 250
+            h, w = m.shape
+            tol = 2
+            assert m.any()
+            assert not m[:px(S.margin_top) - tol].any(), spec.type
+            assert not m[h - px(S.margin_bottom) + tol:].any(), spec.type
+            assert not m[:, :px(box.margin_left) - tol].any(), spec.type
+            assert not m[:, w - px(box.margin_right) + tol:].any(), spec.type
+
+
+def test_daily_and_tracker_text(tmp_path):
+    book = build_book(load_recipe("monthly"), S, 2026, 11)      # Nov 1 2026 is a Sunday
+    pdf = tmp_path / "m.pdf"
+    write_pages_pdf(book, pdf, S)
+    pages = PdfReader(str(pdf)).pages
+    assert "SUN NOV 1" in pages[0].extract_text()
+    assert "WEEK 45" in pages[7].extract_text()                 # Sun Nov 1 - Sat Nov 7
+    build_folder(book, tmp_path / "out", S)
+    cover = PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text()
+    assert "NOVEMBER 2026" in cover and "30" in cover.split() and "31" not in cover.split()
+
+
+def test_cli_monthly_months(tmp_path):
+    cli.main(["build", "monthly", "--year", "2027", "--month", "3", "--out", str(tmp_path)])
+    assert (tmp_path / "monthly-2027-03" / "print-first.pdf").is_file()
+    cli.main(["build", "monthly", "--year", "2027", "--all-months", "--out", str(tmp_path)])
+    assert len(list(tmp_path.glob("monthly-2027-*"))) == 12

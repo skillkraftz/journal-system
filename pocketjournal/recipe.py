@@ -6,9 +6,11 @@ A recipe is a mapping with these keys (see the README for examples):
     title          human-readable title (optional)
     page_numbers   draw page numbers in the bottom outer corner (default false)
     cover          front: and back: page types for the inside covers
-    pages          ordered list of entries: type, params, repeat, each
+    pages          ordered list of entries: type, params, repeat, each,
+                   after_saturday
     fill           type (and params) used to fill the book to its page count
 """
+import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -22,7 +24,7 @@ from .pagetypes import PAGE_TYPES
 
 EACH = {"day": ("year", "month"), "week": ("year",)}
 _RECIPE_KEYS = {"name", "title", "page_numbers", "cover", "pages", "fill"}
-_ENTRY_KEYS = {"type", "params", "repeat", "each"}
+_ENTRY_KEYS = {"type", "params", "repeat", "each", "after_saturday"}
 
 
 class RecipeError(ValueError):
@@ -35,6 +37,7 @@ class Entry:
     params: Mapping[str, Any] = field(default_factory=dict)
     repeat: int = 1
     each: str | None = None            # "day" (of the month) or "week" (of the year)
+    after_saturday: "Entry | None" = None   # one extra page after every Saturday (`each: day`)
 
 
 @dataclass(frozen=True)
@@ -54,12 +57,15 @@ class Recipe:
         return tuple(n for n in ("year", "month") if n in wanted)
 
 
-def _entry(raw: Any, where: str, allow_each: bool = False) -> Entry:
+def _entry(raw: Any, where: str, allow_each: bool = False,
+           allow_after: bool = False) -> Entry:
     if isinstance(raw, str):
         raw = {"type": raw}
     if not isinstance(raw, dict) or "type" not in raw:
         raise RecipeError(f"{where}: needs a page type (e.g. `type: lined`)")
     extra = set(raw) - _ENTRY_KEYS
+    if "after_saturday" in raw and not allow_after:
+        raise RecipeError(f"{where}: after_saturday is only allowed in `pages`")
     if extra:
         raise RecipeError(f"{where}: unknown key(s) {sorted(extra)}")
     if raw["type"] not in PAGE_TYPES:
@@ -71,7 +77,11 @@ def _entry(raw: Any, where: str, allow_each: bool = False) -> Entry:
     if each is not None and (each not in EACH or not allow_each):
         raise RecipeError(f"{where}: each must be one of {sorted(EACH)} "
                           f"(and is only allowed in `pages`)")
-    return Entry(raw["type"], raw.get("params") or {}, repeat, each)
+    after = raw.get("after_saturday")
+    if after is not None and each != "day":
+        raise RecipeError(f"{where}: after_saturday needs `each: day`")
+    return Entry(raw["type"], raw.get("params") or {}, repeat, each,
+                 _entry(after, f"{where} after_saturday") if after is not None else None)
 
 
 def parse_recipe(data: Any, source: str = "recipe") -> Recipe:
@@ -91,7 +101,7 @@ def parse_recipe(data: Any, source: str = "recipe") -> Recipe:
         page_numbers=bool(data.get("page_numbers", False)),
         front=_entry(cover.get("front", "blank"), f"{source} cover.front"),
         back=_entry(cover.get("back", "blank"), f"{source} cover.back"),
-        pages=tuple(_entry(e, f"{source} pages[{i}]", allow_each=True)
+        pages=tuple(_entry(e, f"{source} pages[{i}]", allow_each=True, allow_after=True)
                     for i, e in enumerate(data.get("pages") or [])),
         fill=_entry(data["fill"], f"{source} fill") if data.get("fill") else None)
 
@@ -129,7 +139,13 @@ def build_book(recipe: Recipe, s: Settings, year: int | None = None,
             items = [dict(date=d, week=w) for w, d in calendars.weeks_of_year(year)]
         else:
             items = [{}]
-        pages += [spec(e, **ctx) for ctx in items for _ in range(e.repeat)]
+        for ctx in items:
+            pages += [spec(e, **ctx) for _ in range(e.repeat)]
+            if e.after_saturday and ctx["date"].weekday() == 5:
+                # the page covers the week that ends here, like `each: week`
+                sunday = ctx["date"] - dt.timedelta(days=6)
+                pages.append(spec(e.after_saturday, date=sunday,
+                                  week=calendars.week_number(ctx["date"])))
 
     if len(pages) > s.book_pages:
         raise RecipeError(f"recipe {recipe.name!r} makes {len(pages)} pages, "
