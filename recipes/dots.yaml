@@ -1,0 +1,12 @@
+# A 52-page notebook of 3 mm dot grid, with an index on the inside back cover.
+name: dots
+title: Dot grid notebook
+page_numbers: true
+
+cover:
+  front: blank
+  back: index
+
+pages: []
+fill:
+  type: dots

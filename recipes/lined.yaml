@@ -1,0 +1,12 @@
+# A 52-page notebook of 3 mm ruled lines, with an index on the inside back cover.
+name: lined
+title: Lined notebook
+page_numbers: true
+
+cover:
+  front: blank
+  back: index
+
+pages: []                 # nothing fixed ...
+fill:                     # ... so every page is filled with this type
+  type: lined
