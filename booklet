@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# make-booklet: turn a PDF into saddle-stitched booklet signatures.
+# Requires: pdfjam (from TeX Live) and qpdf.
+
+set -euo pipefail
+
+cat <<'EOF'
+==============================================================
+ make-booklet
+--------------------------------------------------------------
+ This script turns a PDF into print-ready booklet signatures.
+
+ 1. You pick a PDF from this folder (or pass one as an argument).
+ 2. You choose letter or half-letter paper.
+ 3. You set the page (content) size, how much margin to trim
+    off the source pages, and how many signatures to make.
+ 4. Each source page is trimmed and stretched to the page size.
+ 5. Pages are split into signatures and imposed as booklets
+    (two pages side by side, ordered for folding).
+ 6. Each spread is centered on your paper at actual size.
+
+ Letter:      one file per signature (print double-sided).
+ Half-letter: two files per signature for manual duplex:
+              print "1-print-first", reload the stack, then
+              print "2-print-second".
+
+ Output goes in a new folder next to your PDF.
+ Working files go in a temp folder that is deleted when done.
+==============================================================
+
+EOF
+
+# --- Check tools -------------------------------------------------
+for tool in pdfjam qpdf; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Error: '$tool' is not installed or not in your PATH." >&2
+    exit 1
+  fi
+done
+
+# --- Helpers -------------------------------------------------------
+ask() {  # ask "prompt" "default" -> prints answer
+  local prompt="$1" default="$2" reply
+  read -r -p "$prompt [$default]: " reply
+  echo "${reply:-$default}"
+}
+
+# qpdf exits with status 3 on harmless warnings (pdfjam output triggers
+# "duplicated key /Group"), which would stop the script. Ignore them.
+qpdfq() { qpdf --no-warn --warning-exit-0 "$@"; }
+
+is_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
+
+calc() { awk "BEGIN { printf \"%.4g\", $1 }"; }
+
+# --- Pick a PDF ---------------------------------------------------------
+if [ $# -ge 1 ]; then
+  INPUT="$1"
+  [ -f "$INPUT" ] || { echo "Error: '$INPUT' not found." >&2; exit 1; }
+  echo "Using: $INPUT"
+  echo
+else
+shopt -s nullglob
+pdfs=( *.pdf *.PDF )
+shopt -u nullglob
+
+if [ ${#pdfs[@]} -eq 0 ]; then
+  echo "No PDF files found in $(pwd)." >&2
+  exit 1
+fi
+
+echo "PDFs in $(pwd):"
+PS3="Choose a PDF by number: "
+select INPUT in "${pdfs[@]}"; do
+  [ -n "${INPUT:-}" ] && break
+  echo "Invalid choice, try again."
+done
+echo
+fi
+
+# --- Paper size ------------------------------------------------------
+echo "Paper size:"
+echo "  1) Letter (11 x 8.5 in, landscape, printer does double-sided)"
+echo "  2) Half-letter (8.5 x 5.5 in, landscape, manual double-sided)"
+while true; do
+  choice=$(ask "Choose 1 or 2" "2")
+  case "$choice" in
+    1) PAPER="letter";      PAPER_W=11;  PAPER_H=8.5; break ;;
+    2) PAPER="half-letter"; PAPER_W=8.5; PAPER_H=5.5; break ;;
+    *) echo "Please enter 1 or 2." ;;
+  esac
+done
+echo
+
+# --- Page size --------------------------------------------------------------
+echo "Page size is the size of ONE page of content (one half of a spread)."
+while true; do
+  PAGE_W=$(ask "Page width in inches" "3.5")
+  PAGE_H=$(ask "Page height in inches" "5.25")
+  if ! is_number "$PAGE_W" || ! is_number "$PAGE_H"; then
+    echo "Please enter numbers like 3.5"; continue
+  fi
+  SPREAD_W=$(calc "$PAGE_W * 2")
+  SIDE_M=$(calc "($PAPER_W - $SPREAD_W) / 2")
+  TOPBOT_M=$(calc "($PAPER_H - $PAGE_H) / 2")
+  if awk "BEGIN { exit !($SIDE_M < 0 || $TOPBOT_M < 0) }"; then
+    echo "That spread (${SPREAD_W} x ${PAGE_H} in) is bigger than ${PAPER_W} x ${PAPER_H} in paper. Try smaller."
+    continue
+  fi
+  break
+done
+echo "  Spread: ${SPREAD_W} x ${PAGE_H} in"
+echo "  Margins on the sheet: ${SIDE_M} in left/right, ${TOPBOT_M} in top/bottom"
+echo
+
+# --- Trim and stretch ---------------------------------------------------------
+TRIM=$(ask "Inches to trim off each edge of the source pages" "0.25")
+is_number "$TRIM" || { echo "Trim must be a number." >&2; exit 1; }
+
+STRETCH=$(ask "Stretch pages to fill the page size exactly? (y/n)" "y")
+echo
+
+# --- Signatures ---------------------------------------------------------------
+TOTAL=$(qpdfq --show-npages "$INPUT")
+echo "The source PDF has $TOTAL pages."
+while true; do
+  SIGS=$(ask "How many signatures" "1")
+  [[ "$SIGS" =~ ^[1-9][0-9]*$ ]] && break
+  echo "Please enter a whole number of 1 or more."
+done
+
+# Pages per signature: split evenly, rounded up to a multiple of 4.
+PPS=$(( ( (TOTAL + SIGS - 1) / SIGS + 3 ) / 4 * 4 ))
+echo "  About $PPS pages ($(( PPS / 4 )) sheets) per signature."
+echo
+
+# --- Confirm -------------------------------------------------------------------
+NAME="${INPUT%.*}"
+OUTDIR="./${NAME}-booklet"
+echo "Summary:"
+echo "  Input:       $INPUT"
+echo "  Paper:       $PAPER (${PAPER_W} x ${PAPER_H} in)"
+echo "  Page size:   ${PAGE_W} x ${PAGE_H} in (stretch: $STRETCH)"
+echo "  Trim:        ${TRIM} in per edge"
+echo "  Signatures:  $SIGS"
+echo "  Output to:   $OUTDIR/"
+go=$(ask "Continue? (y/n)" "y")
+[[ "$go" =~ ^[Yy] ]] || { echo "Cancelled."; exit 0; }
+echo
+
+# --- Work in a temp folder -----------------------------------------------------
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$OUTDIR"
+
+echo "Step 1: trimming and sizing pages to ${PAGE_W} x ${PAGE_H} in..."
+if [[ "$STRETCH" =~ ^[Yy] ]]; then
+  pdfjam --quiet --papersize "{${PAGE_W}in,${PAGE_H}in}" \
+    --trim "${TRIM}in ${TRIM}in ${TRIM}in ${TRIM}in" --clip true \
+    --noautoscale true --width "${PAGE_W}in" --height "${PAGE_H}in" \
+    --keepaspectratio false \
+    --outfile "$TMP/sized.pdf" -- "$INPUT"
+else
+  pdfjam --quiet --papersize "{${PAGE_W}in,${PAGE_H}in}" \
+    --trim "${TRIM}in ${TRIM}in ${TRIM}in ${TRIM}in" --clip true \
+    --outfile "$TMP/sized.pdf" -- "$INPUT"
+fi
+
+start=1
+for (( s=1; s<=SIGS; s++ )); do
+  if (( start > TOTAL )); then
+    echo "Note: only $((s-1)) signatures were needed for $TOTAL pages."
+    break
+  fi
+  end=$(( start + PPS - 1 ))
+  (( end > TOTAL )) && end=$TOTAL
+
+  if (( SIGS > 1 )); then label="sig${s}"; else label="booklet"; fi
+  echo "Step 2: signature $s (pages $start-$end)..."
+
+  qpdfq "$TMP/sized.pdf" --pages . "${start}-${end}" -- "$TMP/${label}-pages.pdf"
+
+  # Impose as a booklet onto a sheet exactly the size of the spread.
+  # pdfjam pads with blank pages to a multiple of 4.
+  pdfjam --quiet --booklet true --papersize "{${SPREAD_W}in,${PAGE_H}in}" \
+    --outfile "$TMP/${label}-spreads.pdf" -- "$TMP/${label}-pages.pdf"
+
+  # Center each spread on the paper at actual size.
+  pdfjam --quiet --papersize "{${PAPER_W}in,${PAPER_H}in}" --noautoscale true \
+    --outfile "$TMP/${label}-sheets.pdf" -- "$TMP/${label}-spreads.pdf"
+
+  if [ "$PAPER" = "letter" ]; then
+    cp "$TMP/${label}-sheets.pdf" "$OUTDIR/${label}.pdf"
+  else
+    # Manual duplex: fronts in reverse order first, then backs in order.
+    qpdfq "$TMP/${label}-sheets.pdf" --pages . 1-z:odd -- "$TMP/${label}-fronts.pdf"
+    qpdfq "$TMP/${label}-fronts.pdf" --pages . z-1 -- "$OUTDIR/${label}-1-print-first.pdf"
+    qpdfq "$TMP/${label}-sheets.pdf" --pages . 1-z:even -- "$OUTDIR/${label}-2-print-second.pdf"
+  fi
+
+  start=$(( end + 1 ))
+done
+
+echo
+echo "Done. Files in $OUTDIR/:"
+ls -1 "$OUTDIR"
+echo
+if [ "$PAPER" = "letter" ]; then
+  echo "Print each file double-sided. If every other side comes out upside"
+  echo "down, switch between flip-on-long-edge and flip-on-short-edge."
+else
+  echo "For each signature: print '1-print-first', put the stack back in"
+  echo "the tray the same way you did before, then print '2-print-second'."
+fi
