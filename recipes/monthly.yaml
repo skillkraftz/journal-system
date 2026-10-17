@@ -1,0 +1,22 @@
+# The monthly journal: the tracker on the inside front cover, a dated daily
+# Good Time Journal page for every day, a reflection page after each Saturday
+# (matching the year journal's Sunday-Saturday weeks), month-end pages, then
+# lined pages up to 52. Needs a year and month: `build monthly --year 2027 --month 3`.
+name: monthly
+title: Monthly journal
+page_numbers: true
+
+cover:
+  front: monthly_tracker
+  back: quick_reference    # first draft: how to log, how to reflect, AEIOU
+
+pages:
+  - type: daily
+    each: day              # one page per day of the month
+    after_saturday:
+      type: week_reflection
+  - month_review
+  - someday
+
+fill:
+  type: lined

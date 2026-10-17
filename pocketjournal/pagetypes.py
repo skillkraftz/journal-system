@@ -95,3 +95,4 @@ def index(d: Draw, box: PageBox, ctx: PageContext) -> None:
 
 
 from . import yearpages  # noqa: E402,F401  (registers the year journal page types)
+from . import monthlypages  # noqa: E402,F401  (registers the monthly journal page types)

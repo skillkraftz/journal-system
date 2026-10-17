@@ -21,6 +21,18 @@ def weeks_of_year(year: int) -> list[tuple[int, dt.date]]:
     return [(w, week_start(year, w)) for w in range(1, WEEKS_PER_YEAR + 1)]
 
 
+def week_number(day: dt.date) -> int | None:
+    """The year-journal week (1-52) that holds `day`, or None for the December
+    days past week 52 that the year journal drops. The days before January 1 in
+    week 1's Sunday-first week belong to the next year's week 1."""
+    for year in (day.year + 1, day.year):
+        start = week_start(year, 1)
+        if start <= day:
+            week = (day - start).days // 7 + 1
+            return week if week <= WEEKS_PER_YEAR else None
+    return None
+
+
 def days_of_month(year: int, month: int) -> list[dt.date]:
     if not 1 <= month <= 12:
         raise ValueError(f"month must be 1-12, got {month}")

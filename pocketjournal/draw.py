@@ -86,6 +86,20 @@ class Draw:
                 self._stroke(width, gray)
                 self.c.circle(x * MM, y * MM, r * MM, stroke=1, fill=0)
 
+    def arc(self, x, y, r, start: float, extent: float, width: float, gray: float = 0.0):
+        """Outline of a circular arc; angles in degrees, counterclockwise from 3 o'clock."""
+        with self.saved():
+            self._stroke(width, gray)
+            self.c.arc((x - r) * MM, (y - r) * MM, (x + r) * MM, (y + r) * MM,
+                       start, extent)
+
+    def wedge(self, x, y, r, start: float, extent: float, gray: float):
+        """A filled pie slice of the circle at (x, y); angles as for `arc`."""
+        with self.saved():
+            self.c.setFillGray(gray)
+            self.c.wedge((x - r) * MM, (y - r) * MM, (x + r) * MM, (y + r) * MM,
+                         start, extent, stroke=0, fill=1)
+
     def text(self, x, y, string: str, size: float, bold=False, gray=0.0,
              anchor: str = "l", rotate: float = 0):
         """Text at baseline (x, y). anchor: l(eft), c(enter) or r(ight).
