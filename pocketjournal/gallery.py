@@ -24,9 +24,15 @@ SAMPLE_YEAR, SAMPLE_MONTH = 2026, 10
 SAMPLE_DAY = dt.date(2026, 10, 26)           # a Monday
 SAMPLE_WEEK_SUNDAY = dt.date(2026, 6, 28)    # a week that spans two months
 # page types that sit inside a book (and so carry a page number and header)
-INTERIOR = {"lined", "dots", "week", "daily", "week_reflection", "month_review", "someday"}
+INTERIOR = {"lined", "dots", "week", "daily", "week_reflection", "month_review",
+            "questions", "idea"}
 SAMPLE_NUMBER = 13                           # odd: a right-hand page
 DPI = 200
+
+
+def _sample_book(s: Settings) -> tuple:
+    """The monthly journal's pages, for the page type that indexes a book."""
+    return recipes.build_book(recipes.load_recipe("monthly"), s, SAMPLE_YEAR, SAMPLE_MONTH).pages
 
 
 def _sample_context(name: str, s: Settings) -> PageContext:
@@ -34,7 +40,7 @@ def _sample_context(name: str, s: Settings) -> PageContext:
     week = calendars.week_number(SAMPLE_WEEK_SUNDAY) if name in ("week", "week_reflection") else None
     params = {"label": "NOTES"} if name == "lined" else {}
     return PageContext(SAMPLE_NUMBER, s.book_pages, s, params, date,
-                       SAMPLE_YEAR, SAMPLE_MONTH, week)
+                       SAMPLE_YEAR, SAMPLE_MONTH, week, _sample_book(s) if name == "page_index" else ())
 
 
 def render_page_type(name: str, s: Settings, tmp: Path, out: Path) -> Path:

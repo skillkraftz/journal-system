@@ -33,10 +33,11 @@ class Book:
 
 
 def _draw_spec(d: Draw, spec: PageSpec, is_right: bool, number: int,
-               total: int, s: Settings, numbered: bool = False) -> None:
+               total: int, s: Settings, numbered: bool = False,
+               book_pages: tuple = ()) -> None:
     """number 0 is a cover page (never numbered)."""
     ctx = PageContext(number, total, s, spec.params, spec.date, spec.year,
-                      spec.month, spec.week)
+                      spec.month, spec.week, tuple(book_pages))
     box = PageBox(s, is_right)
     get_page_type(spec.type)(d, box, ctx)
     if numbered and number:
@@ -47,7 +48,8 @@ def write_pages_pdf(book: Book, path: Path, s: Settings) -> None:
     """Every interior page at final size, in order (for preview and checking)."""
     d = Draw(path, s.page_w, s.page_h, s)
     for n, spec in enumerate(book.pages, 1):
-        _draw_spec(d, spec, bool(n % 2), n, len(book.pages), s, book.page_numbers)
+        _draw_spec(d, spec, bool(n % 2), n, len(book.pages), s, book.page_numbers,
+                   book.pages)
         d.next_page()
     d.save()
 
@@ -59,7 +61,8 @@ def build_book(book: Book, out_dir: Path, s: Settings, signatures: int = 1) -> d
     sigs = imposition.impose(total, s, signatures)
 
     def draw_page(d: Draw, n: int, is_right: bool) -> None:
-        _draw_spec(d, book.pages[n - 1], is_right, n, total, s, book.page_numbers)
+        _draw_spec(d, book.pages[n - 1], is_right, n, total, s, book.page_numbers,
+                   book.pages)
 
     files = []
     for sig in sigs:
@@ -71,8 +74,8 @@ def build_book(book: Book, out_dir: Path, s: Settings, signatures: int = 1) -> d
     left, right = book.cover
     imposition.write_cover(
         out_dir / "cover.pdf",
-        lambda d, r: _draw_spec(d, left, r, 0, total, s),
-        lambda d, r: _draw_spec(d, right, r, 0, total, s), s)
+        lambda d, r: _draw_spec(d, left, r, 0, total, s, book_pages=book.pages),
+        lambda d, r: _draw_spec(d, right, r, 0, total, s, book_pages=book.pages), s)
     pages_pdf = out_dir / "pages.pdf"
     write_pages_pdf(book, pages_pdf, s)
     contact_sheet(pages_pdf, out_dir / "preview.png", s)

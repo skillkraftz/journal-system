@@ -1,6 +1,7 @@
 """Monthly journal page types: the tracker (inside front cover), the daily Good
-Time Journal page, the weekly reflection, the month-end pages and a pocket
-quick reference (inside back cover, a first draft)."""
+Time Journal page, the weekly reflection, the month-end pages (patterns and
+questions) and the idea-helper page. The inside back cover, a page index, lives
+in indexpages.py."""
 import calendar
 import datetime as dt
 
@@ -12,7 +13,7 @@ from reportlab.pdfbase import pdfmetrics
 from . import calendars
 from .draw import Draw
 from .page import PageBox, PageContext
-from .pagetypes import HEADER_ROWS, draw_header, page_type
+from .pagetypes import HEADER_ROWS, draw_header, index_label, page_type
 from .yearpages import DAY_NAMES, MONTH_NAMES, _cap, _text_base
 
 # ---- Tracker settings -----------------------------------------------------------
@@ -25,7 +26,6 @@ TRACKER_FONT = 6.0           # day numbers must fit a 3 mm column
 WEEKEND_TINT = 0.965         # very faint gray behind weekend rows (None = off)
 
 # ---- Daily page settings ----------------------------------------------------------
-COVER_TITLE_ROWS = 2         # rows the quick reference keeps for its title
 ENTRIES = 3                  # activity entries per day
 ENTRY_ROWS = 6               # grid rows per entry
 WRITE_COLS = 15              # grid columns of writing area; two 6-column dials follow
@@ -47,34 +47,19 @@ REFLECTION = [               # (prompt, writing rows)
 AEIOU = ["Activities", "Environments", "Interactions", "Objects", "Users"]
 AEIOU_PROMPTS = ("top entry", "low entry")        # these get the AEIOU rows
 
-# ---- Quick reference text (inside back cover; edit freely) ----------------------------
-QUICK_REFERENCE = [
-    ("LOG A DAY", [
-        "Up to 3 entries: what you did, in a few words.",
-        "Engagement: mark the dial from LO to HI.",
-        "Flow: tick the box if time disappeared.",
-        "Energy: mark NEG, 0 or POS. Shaded = drained.",
-        "Journal lines: anything else worth keeping."]),
-    ("TRACK THE MONTH (front cover)", [
-        "Hours slept on the left, a habit per column, appointments on the "
-        "right, times along the bottom."]),
-    ("REFLECT (page after each Saturday)", [
-        "Read the week back. Note what engaged and energized you, what "
-        "drained you, what surprised you.",
-        "Pick a top and a low entry and write its AEIOU.",
-        "End with one thing to do more of and one to do less of."]),
-    ("MONTH END", [
-        "Write the patterns and takeaways. Move leftovers to the someday list."]),
-    ("AEIOU: ask it of an entry", [
-        "A Activities: what was I doing? Structured or not, "
-        "a role I was playing?",
-        "E Environments: where was I? How did it look and feel?",
-        "I Interactions: with whom or what? New or familiar, "
-        "formal or casual?",
-        "O Objects: what things, tools or devices was I using?",
-        "U Users: who else was there?"]),
+# ---- Questions page settings ----------------------------------------------------------
+QUESTION_ROWS = 2            # writing rows per question
+CHECK_SIZE = 2.0             # mm, the tick box beside each question
+
+# ---- Idea helper settings: (label, hint, writing rows under it) ------------------------
+# Spare rows go to the free lines at the bottom.
+IDEA_PROMPTS = [
+    ("Idea:", "a one-line title", 1),
+    ("Problem it solves:", "", 6),
+    ("Who it's for:", "", 4),
+    ("Smallest test:", "quickest cheap way to try it", 8),
+    ("Next step:", "", 4),
 ]
-QUICK_BODY_GRAY = 0.15
 
 
 def _month_of(ctx: PageContext) -> int:
@@ -247,10 +232,24 @@ def daily(d: Draw, box: PageBox, ctx: PageContext) -> None:
 # Weekly reflection, month end
 # =============================================================================
 
+def _span(ctx: PageContext) -> str:
+    """The week's dates inside the month, like "Mar 1-6" (a week can start in
+    the month before or end in the month after; those days are not shown)."""
+    last = calendar.monthrange(ctx.year, ctx.month)[1] if ctx.month else None
+    first_day, last_day = ctx.date, ctx.date + dt.timedelta(days=6)
+    if ctx.month is not None:
+        first_day = max(first_day, dt.date(ctx.year, ctx.month, 1))
+        last_day = min(last_day, dt.date(ctx.year, ctx.month, last))
+    if first_day.month == last_day.month:
+        return f"{calendar.month_abbr[first_day.month]} {first_day.day}-{last_day.day}"
+    return (f"{calendar.month_abbr[first_day.month]} {first_day.day}-"
+            f"{calendar.month_abbr[last_day.month]} {last_day.day}")
+
+
 @page_type("week_reflection")
 def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """Placed after a Saturday. ctx.date is the week's Sunday, ctx.week its
-    year-journal number (blank for the December days the year journal drops).
+    """Placed after a Saturday, or after the month's last day. ctx.date is the
+    week's Sunday, ctx.week its year-journal number (blank for the December days the year journal drops).
     Prompts are small gray labels over writing lines; the top and low entries
     get one line per AEIOU letter."""
     if ctx.date is None:
@@ -259,7 +258,7 @@ def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
     cell = g.cell
     row = lambda n: g.y1 - n * cell
 
-    draw_header(d, box, ctx, f"WEEK {ctx.week}" if ctx.week else "WEEK")
+    draw_header(d, box, ctx, f"{'WEEK ' + str(ctx.week) if ctx.week else 'WEEK'}  {_span(ctx)}")
 
     sections = list(REFLECTION)
     used = HEADER_ROWS + sum(1 + n + (len(AEIOU) - n if p in AEIOU_PROMPTS else 0)
@@ -295,53 +294,65 @@ def month_review(d: Draw, box: PageBox, ctx: PageContext) -> None:
         r += rows
 
 
-@page_type("someday")
-def someday(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """Notes and a someday list: a dot and a writing line on every row."""
+@page_type("questions")
+def questions(d: Draw, box: PageBox, ctx: PageContext) -> None:
+    """Month-end questions. Each gets two writing rows, and a tiny box in the
+    first grid column to tick once it has moved into a book-notes journal (the
+    reading notes are built around questions)."""
     s, g = ctx.settings, box.grid_area()
-    draw_header(d, box, ctx, "NOTES / SOMEDAY")
-    d.line(g.x0, g.y1 - HEADER_ROWS * g.cell, g.x1,
-           g.y1 - HEADER_ROWS * g.cell, s.structure_weight)
-    _rules(d, s, g, g.x0, g.x1, HEADER_ROWS, g.rows)
-    for r in range(HEADER_ROWS, g.rows):
-        d.circle(g.x0 + 1.2, g.y1 - (r + 0.5) * g.cell, 0.4, s.dot_gray)
+    row = lambda n: g.y1 - n * g.cell
+    draw_header(d, box, ctx, f"{calendar.month_name[_month_of(ctx)].upper()} QUESTIONS")
+    d.line(g.x0, row(HEADER_ROWS), g.x1, row(HEADER_ROWS), s.structure_weight)
+    key = row(HEADER_ROWS + 1)                       # a key on the first row below the line
+    _check(d, key + (g.cell - CHECK_SIZE) / 2, g.x0 + (g.cell - CHECK_SIZE) / 2, s)
+    d.text(g.x0 + g.cell + 0.8, _text_base(key), "= moved to a book-notes journal",
+           s.font_label, gray=0.4)
+    first = HEADER_ROWS + 1
+    for r in range(first, g.rows - QUESTION_ROWS + 1, QUESTION_ROWS):
+        _rules(d, s, g, g.x0 + g.cell, g.x1, r, r + QUESTION_ROWS)
+        _check(d, row(r + 1) + (g.cell - CHECK_SIZE) / 2, g.x0 + (g.cell - CHECK_SIZE) / 2, s)
+
+
+def _check(d: Draw, y: float, x: float, s) -> None:
+    d.rect(x, y, CHECK_SIZE, CHECK_SIZE, s.structure_weight)
+
+
+@page_type("idea")
+def idea(d: Draw, box: PageBox, ctx: PageContext) -> None:
+    """Idea helper, the left page of an ideas spread (dots go on the facing
+    page). Each prompt is a small gray label on its own 3 mm row with writing
+    lines under it; what is left over becomes free lines."""
+    s, g = ctx.settings, box.grid_area()
+    row = lambda n: g.y1 - n * g.cell
+    draw_header(d, box, ctx, "IDEA")
+    r = HEADER_ROWS
+    d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
+    for label, hint, lines in IDEA_PROMPTS:
+        d.text(g.x0 + 0.8, _text_base(row(r + 1)), label, s.font_label, bold=True)
+        if hint:
+            d.text(g.x1, _text_base(row(r + 1)), hint, s.font_label, gray=0.55, anchor="r")
+        _rules(d, s, g, g.x0, g.x1, r + 1, r + 1 + lines)
+        r += 1 + lines
+        d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
+    if r + 1 > g.rows:
+        raise ValueError("the idea prompts do not fit the page; lower their rows")
+    _rules(d, s, g, g.x0, g.x1, r, g.rows)
 
 
 # =============================================================================
-# Inside back cover: quick reference (first draft)
+# Labels for the monthly page index (inside back cover)
 # =============================================================================
 
-def _wrap(text: str, font: str, size: float, width: float) -> list[str]:
-    lines, line = [], ""
-    for word in text.split():
-        trial = f"{line} {word}".strip()
-        if line and pdfmetrics.stringWidth(trial, font, size) / MM > width:
-            lines.append(line)
-            line = word
-        else:
-            line = trial
-    return lines + [line]
+@index_label("daily")
+def _daily_label(spec) -> str:
+    return f"{DAY_NAMES[(spec.date.weekday() + 1) % 7]} {spec.date.day}"
 
 
-@page_type("quick_reference")
-def quick_reference(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """How to log, track, reflect, and the AEIOU prompts, so the book works
-    alone. The text is QUICK_REFERENCE at the top of this file."""
-    s, g = ctx.settings, box.grid_area()
-    size, indent = s.font_label, 2.0
-    d.text(g.x0, g.y1 - 2.4, "QUICK REFERENCE", s.font_heading, bold=True)
-    r = COVER_TITLE_ROWS
-    for title, items in QUICK_REFERENCE:
-        d.line(g.x0, g.y1 - r * g.cell, g.x1, g.y1 - r * g.cell, s.structure_weight)
-        d.text(g.x0, _text_base(g.y1 - (r + 1) * g.cell), title, size, bold=True)
-        r += 1
-        for item in items:
-            for k, line in enumerate(_wrap(item, s.font_regular, size,
-                                           g.x1 - g.x0 - indent - (0 if item[1] != ' ' else 2.8))):
-                d.text(g.x0 + indent + (0 if k == 0 or item[1] != ' ' else 2.8),
-                       _text_base(g.y1 - (r + 1) * g.cell), line, size,
-                       gray=QUICK_BODY_GRAY)
-                r += 1
-        r += 1
-    if r - 1 > g.rows:
-        raise ValueError(f"the quick reference needs {r - 1} rows but a page has {g.rows}")
+@index_label("week_reflection")
+def _reflection_label(spec) -> str:
+    return f"wk {spec.week}" if spec.week else "wk"
+
+
+index_label("month_review")(lambda spec: "patterns")
+index_label("questions")(lambda spec: "questions")
+index_label("idea")(lambda spec: "idea:")

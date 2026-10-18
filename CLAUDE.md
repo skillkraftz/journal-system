@@ -104,8 +104,8 @@ paper and centered the same way.
   Interior: a dated daily Good Time Journal page per day (three activity
   entries with Engagement + Flow and Energy dials, then journal lines), weekly
   reflections that line up with the year journal's Sunday-Saturday weeks,
-  month-end review pages, then notes pages to fill out 52. The inside back
-  cover is not decided yet.
+  month-end pages (patterns & takeaways, questions), then ideas spreads and
+  a few lined pages to fill out 52. The inside back cover is a page index.
 - **Book notes**: a setup page per book (title; the question I want answered;
   sections I'm reading or ALL; what improves if I find the answer; what stays
   unsolved if I don't; what success looks like) followed by note pages

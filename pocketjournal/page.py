@@ -102,3 +102,6 @@ class PageContext:
     year: int | None = None
     month: int | None = None
     week: int | None = None
+    # the interior PageSpecs of the whole book, for pages that describe the
+    # book (the monthly page index); empty when drawn on their own
+    book_pages: tuple = ()

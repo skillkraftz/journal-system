@@ -37,7 +37,7 @@ A recipe is a YAML file in `recipes/`. Its file name is the book's name on the
 command line. Nothing else needs code, as long as the page types exist
 (`blank`, `lined` (optional `params: {label: ...}` for the header), `dots`, `index`, the year journal's `week`, `year_goals`,
 `year_index`, and the monthly journal's `daily`, `week_reflection`,
-`month_review`, `someday`, `monthly_tracker`, `quick_reference`; see `pocketjournal/pagetypes.py`).
+`month_review`, `questions`, `idea`, `monthly_tracker`, `page_index`; see `pocketjournal/pagetypes.py`).
 
 ```yaml
 name: sampler                # used for the output folder
@@ -57,11 +57,26 @@ pages:                       # fixed pages, in order
     each: day                # one page per day of the chosen month
                              # (`each: week`: one per week of the chosen year)
     after_saturday:          # with `each: day`: one extra page after every
-      type: lined            # Saturday (its date is that week's Sunday)
+      type: lined            # Saturday, and after the month's last day if it
+                             # is not one (its date is that week's Sunday)
 
 fill:                        # pad with this type until the book has 52 pages
   type: lined
 ```
+
+`fill` can also repeat a spread, so a book can end with spreads that always
+start on a left (even) page:
+
+```yaml
+fill:
+  spread: [idea, dots]       # pages of one spread, left page first (even count)
+  align: lined               # added if the next page would be a right-hand one
+  end:
+    type: lined              # closing pages ...
+    repeat: 3                # ... this many, plus one if a page is left over
+```
+
+The spreads fill whatever room is left after the fixed pages and the end pages.
 
 Rules:
 
@@ -109,9 +124,26 @@ turn clockwise.
   (labeled `Activity:` and `Reflections:`), an Engagement dial (LO to HI, Flow checkbox) and an Energy dial (NEG, 0, POS;
   negative half shaded), then 3 mm journal lines.
 - A `week_reflection` page after every Saturday of the month, numbered like the
-  year journal's weeks. The days after the month's last Saturday are reflected
-  on in next month's book, where that Saturday falls.
-- `month_review` (patterns, takeaways) and `someday` (notes list), then lined
-  pages up to 52.
-- Inside back cover: `quick_reference`, a first draft (edit `QUICK_REFERENCE`
-  in `monthlypages.py`).
+  year journal's weeks, plus one more after the last day if the month does not
+  end on a Saturday. Its header shows only the week's dates inside the month
+  (the first and last weeks can be partial). Nothing comes from neighboring
+  months.
+- Month end: `month_review` (patterns & takeaways), then `questions`: two
+  writing rows per question and a tiny box in the margin column to tick when
+  the question has moved into a book-notes journal.
+- Ideas spreads fill the rest: an `idea` helper page on the left (Idea, Problem
+  it solves, Who it's for, Smallest test, Next step, free lines; edit
+  `IDEA_PROMPTS` in `monthlypages.py`) facing a `dots` page. Spreads start on a
+  left page (a lined page is added if needed), and the book ends with 3-4 lined
+  pages. See the `fill` rule in `recipes/monthly.yaml`.
+- Inside back cover: `page_index`, all 52 pages in two sideways columns of 26
+  strips with a page number zone and room to write. Known pages carry a small
+  gray label (`SUN 1`, `wk 45`, `patterns`, `questions`, `idea:`); lined and
+  dot pages stay blank. A page type gets a label with `@index_label("name")`.
+
+## Plain books
+
+`lined` and `dots` end with the `index` page type: the same sideways two-column
+style as the year journal's covers, 26 pages per column plus a date field
+("goal post") after pages 13, 26, 39 and 52 for when you reached that point.
+Page 26, the center spread at the stitches, is tinted and its number bold.
