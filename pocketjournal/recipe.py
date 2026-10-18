@@ -8,7 +8,8 @@ A recipe is a mapping with these keys (see the README for examples):
     cover          front: and back: page types for the inside covers
     pages          ordered list of entries: type, params, repeat, each,
                    after_saturday
-    fill           type (and params) used to fill the book to its page count
+    fill           how to fill the book to its page count: one page type
+                   (type, params), or a repeating spread (spread, align, end)
 """
 import datetime as dt
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from .pagetypes import PAGE_TYPES
 EACH = {"day": ("year", "month"), "week": ("year",)}
 _RECIPE_KEYS = {"name", "title", "page_numbers", "cover", "pages", "fill"}
 _ENTRY_KEYS = {"type", "params", "repeat", "each", "after_saturday"}
+_SPREAD_KEYS = {"spread", "align", "end"}
 
 
 class RecipeError(ValueError):
@@ -37,7 +39,19 @@ class Entry:
     params: Mapping[str, Any] = field(default_factory=dict)
     repeat: int = 1
     each: str | None = None            # "day" (of the month) or "week" (of the year)
-    after_saturday: "Entry | None" = None   # one extra page after every Saturday (`each: day`)
+    after_saturday: "Entry | None" = None   # one extra page after every Saturday (`each: day`),
+                                            # and after the month's last day if it is not one
+
+
+@dataclass(frozen=True)
+class SpreadFill:
+    """Fill with a repeating spread that always starts on a left (even) page,
+    then close the book with `end` (its `repeat` pages, plus one more if the
+    spreads leave a page over). `align` is the page added when the next page
+    would be a right-hand one."""
+    spread: tuple[Entry, ...]       # the pages of one spread, left page first
+    align: Entry
+    end: Entry
 
 
 @dataclass(frozen=True)
@@ -48,7 +62,7 @@ class Recipe:
     front: Entry
     back: Entry
     pages: tuple[Entry, ...]
-    fill: Entry | None
+    fill: Entry | SpreadFill | None
 
     @property
     def needs(self) -> tuple[str, ...]:
@@ -84,6 +98,20 @@ def _entry(raw: Any, where: str, allow_each: bool = False,
                  _entry(after, f"{where} after_saturday") if after is not None else None)
 
 
+def _fill(raw: Any, where: str) -> Entry | SpreadFill:
+    if not isinstance(raw, dict) or not (set(raw) & _SPREAD_KEYS):
+        return _entry(raw, where)
+    if set(raw) - _SPREAD_KEYS or not _SPREAD_KEYS <= set(raw):
+        raise RecipeError(f"{where}: a spread fill takes exactly {sorted(_SPREAD_KEYS)}")
+    if not isinstance(raw["spread"], list):
+        raise RecipeError(f"{where}: spread must be a list of page types")
+    spread = tuple(_entry(e, f"{where} spread[{i}]") for i, e in enumerate(raw["spread"]))
+    if not spread or sum(e.repeat for e in spread) % 2:
+        raise RecipeError(f"{where}: a spread needs an even number of pages")
+    return SpreadFill(spread, _entry(raw["align"], f"{where} align"),
+                      _entry(raw["end"], f"{where} end"))
+
+
 def parse_recipe(data: Any, source: str = "recipe") -> Recipe:
     if not isinstance(data, dict):
         raise RecipeError(f"{source}: must be a YAML mapping")
@@ -103,7 +131,7 @@ def parse_recipe(data: Any, source: str = "recipe") -> Recipe:
         back=_entry(cover.get("back", "blank"), f"{source} cover.back"),
         pages=tuple(_entry(e, f"{source} pages[{i}]", allow_each=True, allow_after=True)
                     for i, e in enumerate(data.get("pages") or [])),
-        fill=_entry(data["fill"], f"{source} fill") if data.get("fill") else None)
+        fill=_fill(data["fill"], f"{source} fill") if data.get("fill") else None)
 
 
 def load_recipe(name_or_path: str | Path, recipe_dir: Path = RECIPE_DIR) -> Recipe:
@@ -141,9 +169,10 @@ def build_book(recipe: Recipe, s: Settings, year: int | None = None,
             items = [{}]
         for ctx in items:
             pages += [spec(e, **ctx) for _ in range(e.repeat)]
-            if e.after_saturday and ctx["date"].weekday() == 5:
-                # the page covers the week that ends here, like `each: week`
-                sunday = ctx["date"] - dt.timedelta(days=6)
+            if e.after_saturday and (ctx["date"].weekday() == 5 or ctx is items[-1]):
+                # the page covers the week that ends here (or ends with the
+                # month), like `each: week`; its date is that week's Sunday
+                sunday = ctx["date"] - dt.timedelta(days=(ctx["date"].weekday() + 1) % 7)
                 pages.append(spec(e.after_saturday, date=sunday,
                                   week=calendars.week_number(ctx["date"])))
 
@@ -154,10 +183,29 @@ def build_book(recipe: Recipe, s: Settings, year: int | None = None,
         if recipe.fill is None:
             raise RecipeError(f"recipe {recipe.name!r} makes {len(pages)} pages; "
                               f"add a `fill:` rule to reach {s.book_pages}")
-        pages += [spec(recipe.fill)] * (s.book_pages - len(pages))
+        if isinstance(recipe.fill, SpreadFill):
+            pages += _spread_fill(recipe, recipe.fill, len(pages), s.book_pages, spec)
+        else:
+            pages += [spec(recipe.fill)] * (s.book_pages - len(pages))
 
     return Book(recipe.name, tuple(pages), (spec(recipe.front), spec(recipe.back)),
                 page_numbers=recipe.page_numbers, title=_title(recipe, year, month))
+
+
+def _spread_fill(recipe: Recipe, fill: SpreadFill, have: int, total: int,
+                 spec) -> list[PageSpec]:
+    """Pages to add after the `have` fixed ones: an `align` page if the next
+    page (number have + 1) is a right-hand one, as many whole spreads as leave
+    room for `end`, then the end pages."""
+    per_spread = sum(e.repeat for e in fill.spread)
+    out = [spec(fill.align)] if (have + 1) % 2 else []
+    room = total - have - len(out) - fill.end.repeat
+    if room < 0:
+        raise RecipeError(f"recipe {recipe.name!r}: no room for the end pages of its fill")
+    out += [spec(e) for _spread in range(room // per_spread)
+            for e in fill.spread for _page in range(e.repeat)]
+    spare = room % per_spread                      # leftover pages join the end
+    return out + [spec(fill.end)] * (fill.end.repeat + spare)
 
 
 def _title(recipe: Recipe, year: int | None, month: int | None) -> str:

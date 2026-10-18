@@ -1,22 +1,29 @@
-# The monthly journal: the tracker on the inside front cover, a dated daily
-# Good Time Journal page for every day, a reflection page after each Saturday
-# (matching the year journal's Sunday-Saturday weeks), month-end pages, then
-# lined pages up to 52. Needs a year and month: `build monthly --year 2027 --month 3`.
+# The monthly journal, self-contained for its own month: the tracker on the
+# inside front cover, a dated daily Good Time Journal page for every day, a
+# reflection page after each Saturday (matching the year journal's
+# Sunday-Saturday weeks) and one more after the last day if the month does not
+# end on a Saturday, month-end pages, then ideas spreads and a few lined pages
+# up to 52. The inside back cover is an index of all 52 pages.
+# Needs a year and month: `build monthly --year 2027 --month 3`.
 name: monthly
 title: Monthly journal
 page_numbers: true
 
 cover:
   front: monthly_tracker
-  back: quick_reference    # first draft: how to log, how to reflect, AEIOU
+  back: page_index         # 52 strips, labeled SUN 1, wk 45, patterns, ...
 
 pages:
   - type: daily
     each: day              # one page per day of the month
-    after_saturday:
+    after_saturday:        # also after the last day when it is not a Saturday
       type: week_reflection
-  - month_review
-  - someday
+  - month_review           # patterns & takeaways
+  - questions
 
 fill:
-  type: lined
+  spread: [idea, dots]     # idea helper on the left, dot grid to sketch on the right
+  align: lined             # one lined page if the next page would be a right one
+  end:
+    type: lined            # the book closes with these lined pages
+    repeat: 3              # (one more when the spreads leave a page over)

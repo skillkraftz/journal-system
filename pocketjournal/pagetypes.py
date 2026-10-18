@@ -1,6 +1,6 @@
 """The page-type registry. A page type is a function (draw, box, ctx) that
 draws one page in page-local millimeters; register it with @page_type."""
-from typing import Callable
+from typing import Any, Callable
 
 from .draw import Draw
 from .page import PageBox, PageContext
@@ -16,6 +16,23 @@ def page_type(name: str) -> Callable[[PageFn], PageFn]:
         PAGE_TYPES[name] = fn
         return fn
     return register
+
+
+# Short labels the monthly page index prints for each kind of page. A function
+# takes the page's PageSpec and returns the label; types without one stay blank.
+INDEX_LABELS: dict[str, Callable[[Any], str]] = {}
+
+
+def index_label(name: str) -> Callable:
+    def register(fn: Callable[[Any], str]) -> Callable[[Any], str]:
+        INDEX_LABELS[name] = fn
+        return fn
+    return register
+
+
+def label_for(spec: Any) -> str:
+    fn = INDEX_LABELS.get(spec.type)
+    return fn(spec) if fn else ""
 
 
 def get_page_type(name: str) -> PageFn:
@@ -61,38 +78,6 @@ def draw_page_number(d: Draw, box: PageBox, ctx: PageContext) -> None:
         d.text(box.x0, baseline, str(ctx.page_number), s.font_page_number, anchor="l")
 
 
-@page_type("index")
-def index(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """A universal index: page number column and topic area, one entry per
-    3 mm row, with a small date-range field in the top row.
-
-    params: number_cols (grid columns for the page number column, default 3)
-    """
-    s, g = ctx.settings, box.grid_area()
-    split = g.x(int(ctx.params.get("number_cols", 3)))
-    head = g.y(g.rows - 2)                      # bottom of the two header rows
-    base = lambda row_bottom: row_bottom + 0.7  # text baseline inside a row
-
-    # row 0: title and "dates ____ - ____"
-    top = base(g.y(g.rows - 1))
-    d.text(g.x0, top, "INDEX", s.font_label, bold=True)
-    f2, f1 = (g.x(g.cols - 5), g.x1), (g.x(g.cols - 11), g.x(g.cols - 6))
-    d.text(f1[0] - 1.5, top, "dates", s.font_label, gray=0.4, anchor="r")
-    for a, b in (f1, f2):
-        d.line(a, g.y(g.rows - 1), b, g.y(g.rows - 1), s.rule_weight, s.rule_gray)
-    d.text((f1[1] + f2[0]) / 2, top, "-", s.font_label, gray=0.4, anchor="c")
-
-    # row 1: column labels, then a black line under the header
-    row1 = base(g.y(g.rows - 2))
-    d.text((g.x0 + split) / 2, row1, "pg", s.font_label, gray=0.4, anchor="c")
-    d.text(split + 1.0, row1, "topic", s.font_label, gray=0.4)
-    d.line(g.x0, head, g.x1, head, s.structure_weight)
-
-    # entries
-    for row in range(g.rows - 2):
-        d.line(g.x0, g.y(row), g.x1, g.y(row), s.rule_weight, s.rule_gray)
-    d.line(split, g.y(0), split, head, s.structure_weight)
-
-
+from . import indexpages  # noqa: E402,F401  (registers the index page types)
 from . import yearpages  # noqa: E402,F401  (registers the year journal page types)
 from . import monthlypages  # noqa: E402,F401  (registers the monthly journal page types)

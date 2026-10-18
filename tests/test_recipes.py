@@ -146,9 +146,26 @@ def test_numbers_only_where_asked(tmp_path):
     assert not any(c.isdigit() for c in PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text())
 
 
-def test_index_is_on_the_grid(tmp_path):
-    m = render(get_page_type("index"), True, tmp_path / "i.pdf")
-    assert m.any()
+@pytest.mark.parametrize("is_right", [True, False])
+def test_plain_index_layout(tmp_path, is_right):
+    m = render(get_page_type("index"), is_right, tmp_path / "i.pdf")
+    box = PageBox(S, is_right)
+    ys, xs = np.where(m)
+    tol = 2
+    assert ys.min() >= px(S.margin_top) - tol and ys.max() <= m.shape[0] - px(S.margin_bottom) + tol
+    assert xs.min() >= px(box.x0) - tol and xs.max() <= px(box.x1) + tol
+    # 28 strips per column: count the vertical strip boundaries along a scan row
+    col = m[px(S.margin_top) + px(10)]                        # inside the upper column
+    edges = np.count_nonzero(np.diff(col.astype(int)) == 1)
+    assert edges >= 29
+
+
+def test_plain_index_has_only_numbers(tmp_path):
+    book = build_book(load_recipe("lined"), S)
+    build_folder(book, tmp_path / "out", S)
+    words = PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text().split()
+    assert sorted(w for w in words if w.isdigit()) == sorted(str(n) for n in range(1, 53))
+    assert all(w.isdigit() for w in words)                    # no other labels
 
 
 # ---- entry point --------------------------------------------------------------
@@ -316,18 +333,109 @@ def test_monthly_recipe_every_month(year):
         assert len(book.pages) == 52 and book.page_numbers
         days = calendars.days_of_month(year, month)
         types = [p.type for p in book.pages]
-        assert types.count("daily") == len(days)
+        dailies = [p for p in book.pages if p.type == "daily"]
+        assert [p.date for p in dailies] == days                # this month only
         sats = [d for d in days if d.weekday() == 5]
+        partial = days[-1].weekday() != 5
         reflections = [(i, p) for i, p in enumerate(book.pages) if p.type == "week_reflection"]
-        assert len(reflections) == len(sats)
-        for (i, p), sat in zip(reflections, sats):
-            assert book.pages[i - 1].date == sat           # right after the Saturday
-            assert p.date == sat - dt.timedelta(6)
-            assert p.week == calendars.week_number(sat)
-        assert types[len(days) + len(sats):][:2] == ["month_review", "someday"]
-        assert types[-1] == "lined"
-        assert [p.type for p in book.cover] == ["monthly_tracker", "quick_reference"]
+        assert len(reflections) == len(sats) + partial
+        ends = sats + ([days[-1]] if partial else [])
+        for (i, p), end in zip(reflections, ends):
+            assert book.pages[i - 1].date == end               # right after that day
+            assert p.date.weekday() == 6 and p.date <= end < p.date + dt.timedelta(7)
+            assert p.week == calendars.week_number(end)
+        n = len(days) + len(reflections)
+        assert types[n:n + 2] == ["month_review", "questions"]
+        rest = types[n + 2:]
+        # the fill: [lined], then idea/dots spreads, then 3-4 lined pages
+        start = 0
+        if rest[0] == "lined":
+            assert (n + 2 + 1) % 2 == 1 and rest[1] == "idea"   # an align page
+            start = 1
+        end = len(rest)
+        while rest[end - 1] == "lined":
+            end -= 1
+        assert 3 <= len(rest) - end <= 4
+        spreads = rest[start:end]
+        assert spreads and spreads == ["idea", "dots"] * (len(spreads) // 2)
+        for i, t in enumerate(types, 1):
+            if t == "idea":
+                assert i % 2 == 0 and types[i] == "dots"       # left page, dots facing
+        assert [p.type for p in book.cover] == ["monthly_tracker", "page_index"]
         assert book.cover[0].month == month
+
+
+def test_spread_fill_rules():
+    fill = {"spread": ["idea", "dots"], "align": "lined", "end": {"type": "lined", "repeat": 2}}
+    for fixed in range(0, 11):
+        book = build_book(recipe(pages=[{"type": "blank", "repeat": fixed}] if fixed else [],
+                                 fill=fill), S)
+        types = [p.type for p in book.pages]
+        assert len(types) == 52 and types[-2:] == ["lined"] * 2
+        assert all(i % 2 == 0 for i, t in enumerate(types, 1) if t == "idea")
+    for bad in ({"spread": ["idea"], "align": "lined", "end": "lined"},
+                {"spread": ["idea", "dots"], "align": "lined"},
+                {"spread": ["idea", "dots"], "align": "lined", "end": "lined", "x": 1}):
+        with pytest.raises(RecipeError):
+            parse_recipe({"name": "t", "fill": bad})
+    with pytest.raises(RecipeError, match="no room"):
+        build_book(recipe(pages=[{"type": "blank", "repeat": 51}], fill=fill), S)
+
+
+def test_partial_week_reflection_dates(tmp_path):
+    book = build_book(load_recipe("monthly"), S, 2027, 3)       # Mon Mar 1 .. Wed Mar 31
+    pdf = tmp_path / "m.pdf"
+    write_pages_pdf(book, pdf, S)
+    pages = PdfReader(str(pdf)).pages
+    first = next(i for i, p in enumerate(book.pages) if p.type == "week_reflection")
+    last = max(i for i, p in enumerate(book.pages) if p.type == "week_reflection")
+    assert "Mar 1 - Mar 6" in pages[first].extract_text()       # not Feb 28
+    assert "Mar 28 - Mar 31" in pages[last].extract_text()      # not Apr 3
+
+
+def test_questions_and_idea_pages_draw(tmp_path):
+    book = build_book(load_recipe("monthly"), S, 2027, 3)
+    pdf = tmp_path / "m.pdf"
+    write_pages_pdf(book, pdf, S)
+    pages = PdfReader(str(pdf)).pages
+    q = next(i for i, p in enumerate(book.pages) if p.type == "questions")
+    assert "questions" in pages[q].extract_text() and "patterns" in pages[q - 1].extract_text()
+    text = pages[next(i for i, p in enumerate(book.pages) if p.type == "idea")].extract_text()
+    for label in ("Idea:", "Problem it solves:", "Who it's for:", "Smallest test:", "Next step:"):
+        assert label in text
+
+
+def expected_label(p):
+    return {"daily": lambda: f"{'SUN MON TUE WED THU FRI SAT'.split()[(p.date.weekday() + 1) % 7]} "
+                             f"{p.date.day}",
+            "week_reflection": lambda: f"wk {p.week}" if p.week else "wk",
+            "month_review": lambda: "patterns", "questions": lambda: "questions",
+            "idea": lambda: "idea:"}.get(p.type, lambda: "")()
+
+
+@pytest.mark.parametrize("year", [2026, 2027, 2028])
+def test_index_labels_match_page_types(year):
+    from pocketjournal.pagetypes import label_for
+    for month in range(1, 13):
+        book = build_book(load_recipe("monthly"), S, year, month)
+        for p in book.pages:
+            assert label_for(p) == expected_label(p)
+            assert (label_for(p) == "") == (p.type in ("lined", "dots"))
+    assert label_for(book.pages[0]).startswith(("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"))
+
+
+def test_page_index_text(tmp_path):
+    book = build_book(load_recipe("monthly"), S, 2026, 11)      # Nov 1 2026 is a Sunday
+    build_folder(book, tmp_path / "out", S)
+    words = PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text().split()
+    for w in ("SUN", "MON", "wk", "patterns", "questions", "idea:", "45", "52"):
+        assert w in words
+
+
+def test_page_index_needs_the_book(tmp_path):
+    with pytest.raises(ValueError, match="52 pages"):
+        get_page_type("page_index")(Draw(tmp_path / "x.pdf", S.page_w, S.page_h, S),
+                                    PageBox(S, False), PageContext(0, 52, S))
 
 
 def test_after_saturday_rules():
@@ -340,9 +448,9 @@ def test_after_saturday_rules():
 def test_monthly_pages_stay_in_margins(tmp_path):
     book = build_book(load_recipe("monthly"), S, 2027, 2)       # 28 days
     ctx_for = lambda spec: PageContext(7, 52, S, spec.params, spec.date, spec.year,
-                                       spec.month, spec.week)
+                                       spec.month, spec.week, book.pages)
     specs = list(book.cover) + [next(p for p in book.pages if p.type == t) for t in
-                                ("daily", "week_reflection", "month_review", "someday")]
+                                ("daily", "week_reflection", "month_review", "questions", "idea")]
     for spec in specs:
         for is_right in (True, False):
             box = PageBox(S, is_right)
@@ -369,8 +477,14 @@ def test_daily_and_tracker_text(tmp_path):
     pages = PdfReader(str(pdf)).pages
     assert "SUN NOV 1" in pages[0].extract_text()
     assert "WEEK 45" in pages[7].extract_text()                 # Sun Nov 1 - Sat Nov 7
-    build_folder(book, tmp_path / "out", S)
-    cover = PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text()
+    tracker = tmp_path / "tracker.pdf"
+    spec = book.cover[0]
+    d = Draw(tracker, S.page_w, S.page_h, S)
+    get_page_type(spec.type)(d, PageBox(S, True), PageContext(0, 52, S, spec.params, spec.date,
+                                                            spec.year, spec.month, spec.week))
+    d.next_page()
+    d.save()
+    cover = PdfReader(str(tracker)).pages[0].extract_text()
     assert "NOVEMBER 2026" in cover and "30" in cover.split() and "31" not in cover.split()
 
 
