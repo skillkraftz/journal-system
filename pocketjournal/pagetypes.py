@@ -33,8 +33,13 @@ def blank(d: Draw, box: PageBox, ctx: PageContext) -> None:
 
 @page_type("lined")
 def lined(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """A light gray line on every grid row, top and bottom included."""
+    """A light gray line on every grid row, top and bottom included.
+
+    params: label - what the page is, shown by the spine in the header row
+    """
     s, g = ctx.settings, box.grid_area()
+    if ctx.params.get("label"):
+        draw_header(d, box, ctx, str(ctx.params["label"]))
     for row in range(g.rows + 1):
         d.line(g.x0, g.y(row), g.x1, g.y(row), s.rule_weight, s.rule_gray)
 
@@ -48,17 +53,28 @@ def dots(d: Draw, box: PageBox, ctx: PageContext) -> None:
             d.circle(g.x(col), g.y(row), s.dot_radius, s.dot_gray)
 
 
+HEADER_ROWS = 1              # every numbered page starts with a one-row header
+
+
+def header_base(box: PageBox, s) -> float:
+    """Baseline of label-size text in the header row (the top grid row)."""
+    return box.grid_area().y1 - s.grid + 0.7
+
+
 def draw_page_number(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """The page number, in the bottom outer corner, centered in the bottom
-    margin so it never touches the writing area. Books turn this on with
-    `page_numbers: true`; it is not a page type."""
-    s = ctx.settings
-    size_mm = s.font_page_number * 25.4 / 72
-    baseline = (s.margin_bottom - 0.62 * size_mm) / 2     # 0.62: cap height / size
-    if box.is_right:
-        d.text(box.x1, baseline, str(ctx.page_number), s.font_page_number, anchor="r")
-    else:
-        d.text(box.x0, baseline, str(ctx.page_number), s.font_page_number, anchor="l")
+    """The page number, in the top outer corner of the header row. Books turn
+    this on with `page_numbers: true`; it is not a page type."""
+    s, g = ctx.settings, box.grid_area()
+    d.text(g.x1 if box.is_right else g.x0, header_base(box, s), str(ctx.page_number),
+           s.font_page_number, bold=True, anchor="r" if box.is_right else "l")
+
+
+def draw_header(d: Draw, box: PageBox, ctx: PageContext, identity: str) -> None:
+    """What this page is, in the top inner corner (by the spine). On an open
+    spread it reads `30  July | July  31`."""
+    s, g = ctx.settings, box.grid_area()
+    d.text(g.x0 if box.is_right else g.x1, header_base(box, s), identity,
+           s.font_label, bold=True, anchor="l" if box.is_right else "r")
 
 
 @page_type("index")

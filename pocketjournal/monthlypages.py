@@ -12,7 +12,7 @@ from reportlab.pdfbase import pdfmetrics
 from . import calendars
 from .draw import Draw
 from .page import PageBox, PageContext
-from .pagetypes import page_type
+from .pagetypes import HEADER_ROWS, draw_header, page_type
 from .yearpages import DAY_NAMES, MONTH_NAMES, _cap, _text_base
 
 # ---- Tracker settings -----------------------------------------------------------
@@ -22,9 +22,10 @@ NAME_ROWS = 7                # grid rows above the days for vertical habit names
 TIME_ROWS = 5                # grid rows below the days for vertical times
 TRACKER_DAYS = 31            # rows reserved for days, so every month lines up
 TRACKER_FONT = 6.0           # day numbers must fit a 3 mm column
+WEEKEND_TINT = 0.965         # very faint gray behind weekend rows (None = off)
 
 # ---- Daily page settings ----------------------------------------------------------
-DAILY_HEADER_ROWS = 2
+COVER_TITLE_ROWS = 2         # rows the quick reference keeps for its title
 ENTRIES = 3                  # activity entries per day
 ENTRY_ROWS = 6               # grid rows per entry
 WRITE_COLS = 15              # grid columns of writing area; two 6-column dials follow
@@ -76,10 +77,14 @@ QUICK_REFERENCE = [
 QUICK_BODY_GRAY = 0.15
 
 
-def _month_title(ctx: PageContext) -> str:
+def _month_of(ctx: PageContext) -> int:
     if ctx.year is None or ctx.month is None:
         raise ValueError("this page needs a year and a month")
-    return f"{calendar.month_name[ctx.month].upper()} {ctx.year}"
+    return ctx.month
+
+
+def _month_title(ctx: PageContext) -> str:
+    return f"{calendar.month_name[_month_of(ctx)].upper()} {ctx.year}"
 
 
 def _rules(d: Draw, s, g, x0: float, x1: float, row_from: int, row_to: int) -> None:
@@ -118,9 +123,11 @@ def monthly_tracker(d: Draw, box: PageBox, ctx: PageContext) -> None:
 
     d.text(g.x0, g.y1 - 2.4, title, s.font_heading, bold=True)
 
-    # weekend tint behind the date and weekday cells
+    # weekend tint: faint across the whole row, stronger behind date and weekday
     for i, day in enumerate(days):
         if day.weekday() >= 5:
+            if WEEKEND_TINT is not None:
+                d.fill_rect(x(DATE), top - (i + 1) * cell, g.x1 - x(DATE), cell, WEEKEND_TINT)
             d.fill_rect(x(DATE), top - (i + 1) * cell, 2 * cell, cell, s.tint_gray)
 
     # horizontal lines: one per row, a darker one after every Saturday
@@ -155,8 +162,13 @@ def monthly_tracker(d: Draw, box: PageBox, ctx: PageContext) -> None:
     d.text(x(SLEEP) + cell / 2 + _cap(s.font_label) / 2, top + 1.0, "hrs sleep",
            s.font_label, gray=0.4, rotate=90)
     d.text(x(A0) + 0.8, top + 0.7, "appointments", s.font_label, gray=0.4)
-    d.text(x(SLEEP) + 0.8, times_top - 1.5 * cell - _cap(s.font_label) / 2,
-           "times", s.font_label, gray=0.4)
+    # habits and times share the weekday column: what is done daily above,
+    # when each is scheduled below
+    d.text(x(WDAY) + cell / 2 + _cap(s.font_label) / 2, top + 1.0, "habits",
+           s.font_label, gray=0.4, rotate=90)
+    times_w = pdfmetrics.stringWidth("times", s.font_regular, s.font_label) / MM
+    d.text(x(WDAY) + cell / 2 + _cap(s.font_label) / 2, times_top - 1.0 - times_w, "times",
+           s.font_label, gray=0.4, rotate=90)
 
 
 # =============================================================================
@@ -198,7 +210,7 @@ def _dial(d: Draw, s, cx: float, base: float, kind: str) -> None:
 
 @page_type("daily")
 def daily(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """A Good Time Journal day: the date, three activity entries (a short
+    """A Good Time Journal day: the date in the header, three activity entries (a short
     writing area, the Engagement dial with a Flow checkbox, the Energy dial),
     then 3 mm journal lines for the rest of the page."""
     if ctx.date is None:
@@ -208,38 +220,32 @@ def daily(d: Draw, box: PageBox, ctx: PageContext) -> None:
     row = lambda n: g.y1 - n * cell                      # y of the line n rows from the top
 
     day = ctx.date
-    d.text(g.x0, g.y1 - 2.4,
-           f"{DAY_NAMES[(day.weekday() + 1) % 7]} {MONTH_NAMES[day.month - 1]} {day.day}",
-           s.font_heading, bold=True)
-    d.text(g.x1, _text_base(row(2)), str(day.year), s.font_label, gray=0.4, anchor="r")
+    draw_header(d, box, ctx,
+                f"{DAY_NAMES[(day.weekday() + 1) % 7]} {MONTH_NAMES[day.month - 1]} {day.day}")
 
     writing_x1 = g.x(WRITE_COLS)
     engage_cx = g.x(WRITE_COLS + DIAL_COLS / 2)
     energy_cx = g.x(WRITE_COLS + DIAL_COLS * 1.5)
     for n in range(ENTRIES):
-        first = DAILY_HEADER_ROWS + n * ENTRY_ROWS
+        first = HEADER_ROWS + n * ENTRY_ROWS
         bottom = row(first + ENTRY_ROWS)
         d.line(g.x0, row(first), g.x1, row(first), s.structure_weight)
         _rules(d, s, g, g.x0, writing_x1, first, first + ENTRY_ROWS)
         d.line(writing_x1, bottom, writing_x1, row(first), s.rule_weight, s.separator_gray)
-        d.text(g.x0 + 0.8, _text_base(row(first + 1)), str(n + 1), s.font_label, bold=True)
+        d.text(g.x0 + 0.8, _text_base(row(first + 1)), "Activity:", s.font_label, gray=0.4)
+        d.text(g.x0 + 0.8, _text_base(row(first + 3)), "Reflections:", s.font_label, gray=0.4)
         base = bottom + 7.0
         _dial(d, s, engage_cx, base, "engage")
         _dial(d, s, energy_cx, base, "energy")
-    journal_top = DAILY_HEADER_ROWS + ENTRIES * ENTRY_ROWS
+    journal_top = HEADER_ROWS + ENTRIES * ENTRY_ROWS
     d.line(g.x0, row(journal_top), g.x1, row(journal_top), s.structure_weight)
     _rules(d, s, g, g.x0, g.x1, journal_top, g.rows)
-    d.line(g.x0, row(DAILY_HEADER_ROWS), g.x1, row(DAILY_HEADER_ROWS), s.structure_weight)
+    d.line(g.x0, row(HEADER_ROWS), g.x1, row(HEADER_ROWS), s.structure_weight)
 
 
 # =============================================================================
 # Weekly reflection, month end
 # =============================================================================
-
-def _span(sunday, saturday) -> str:
-    return (f"{calendar.month_abbr[sunday.month]} {sunday.day} - "
-            f"{calendar.month_abbr[saturday.month]} {saturday.day}")
-
 
 @page_type("week_reflection")
 def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
@@ -252,19 +258,14 @@ def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
     s, g = ctx.settings, box.grid_area()
     cell = g.cell
     row = lambda n: g.y1 - n * cell
-    saturday = ctx.date + dt.timedelta(days=6)
 
-    d.text(g.x0, g.y1 - 2.4, f"WEEK {ctx.week}" if ctx.week else "WEEK",
-           s.font_heading, bold=True)
-    d.text(g.x1, g.y1 - 2.4, "reflection", s.font_label, gray=0.4, anchor="r")
-    d.text(g.x0, _text_base(row(2)), _span(ctx.date, saturday), s.font_label, gray=0.4)
-    d.text(g.x1, _text_base(row(2)), str(saturday.year), s.font_label, gray=0.4, anchor="r")
+    draw_header(d, box, ctx, f"WEEK {ctx.week}" if ctx.week else "WEEK")
 
     sections = list(REFLECTION)
-    used = DAILY_HEADER_ROWS + sum(1 + n + (len(AEIOU) - n if p in AEIOU_PROMPTS else 0)
+    used = HEADER_ROWS + sum(1 + n + (len(AEIOU) - n if p in AEIOU_PROMPTS else 0)
                                    for p, n in sections)
     sections[0] = (sections[0][0], sections[0][1] + g.rows - used)
-    r = DAILY_HEADER_ROWS
+    r = HEADER_ROWS
     d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
     for prompt, lines in sections:
         n = len(AEIOU) if prompt in AEIOU_PROMPTS else lines
@@ -284,9 +285,8 @@ def month_review(d: Draw, box: PageBox, ctx: PageContext) -> None:
     """Month end: patterns, then takeaways, as two halves of writing lines."""
     s, g = ctx.settings, box.grid_area()
     row = lambda n: g.y1 - n * g.cell
-    d.text(g.x0, g.y1 - 2.4, _month_title(ctx), s.font_heading, bold=True)
-    d.text(g.x1, g.y1 - 2.4, "month end", s.font_label, gray=0.4, anchor="r")
-    r = DAILY_HEADER_ROWS
+    draw_header(d, box, ctx, f"{calendar.month_name[_month_of(ctx)].upper()} REVIEW")
+    r = HEADER_ROWS
     half = (g.rows - r) // 2
     for name, rows in (("patterns", half), ("takeaways", g.rows - r - half)):
         d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
@@ -299,12 +299,11 @@ def month_review(d: Draw, box: PageBox, ctx: PageContext) -> None:
 def someday(d: Draw, box: PageBox, ctx: PageContext) -> None:
     """Notes and a someday list: a dot and a writing line on every row."""
     s, g = ctx.settings, box.grid_area()
-    d.text(g.x0, g.y1 - 2.4, _month_title(ctx), s.font_heading, bold=True)
-    d.text(g.x1, g.y1 - 2.4, "notes / someday", s.font_label, gray=0.4, anchor="r")
-    d.line(g.x0, g.y1 - DAILY_HEADER_ROWS * g.cell, g.x1,
-           g.y1 - DAILY_HEADER_ROWS * g.cell, s.structure_weight)
-    _rules(d, s, g, g.x0, g.x1, DAILY_HEADER_ROWS, g.rows)
-    for r in range(DAILY_HEADER_ROWS, g.rows):
+    draw_header(d, box, ctx, "NOTES / SOMEDAY")
+    d.line(g.x0, g.y1 - HEADER_ROWS * g.cell, g.x1,
+           g.y1 - HEADER_ROWS * g.cell, s.structure_weight)
+    _rules(d, s, g, g.x0, g.x1, HEADER_ROWS, g.rows)
+    for r in range(HEADER_ROWS, g.rows):
         d.circle(g.x0 + 1.2, g.y1 - (r + 0.5) * g.cell, 0.4, s.dot_gray)
 
 
@@ -331,7 +330,7 @@ def quick_reference(d: Draw, box: PageBox, ctx: PageContext) -> None:
     s, g = ctx.settings, box.grid_area()
     size, indent = s.font_label, 2.0
     d.text(g.x0, g.y1 - 2.4, "QUICK REFERENCE", s.font_heading, bold=True)
-    r = DAILY_HEADER_ROWS
+    r = COVER_TITLE_ROWS
     for title, items in QUICK_REFERENCE:
         d.line(g.x0, g.y1 - r * g.cell, g.x1, g.y1 - r * g.cell, s.structure_weight)
         d.text(g.x0, _text_base(g.y1 - (r + 1) * g.cell), title, size, bold=True)
