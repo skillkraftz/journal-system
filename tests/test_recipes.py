@@ -50,7 +50,7 @@ def test_shipped_recipes():
         book = build_book(load_recipe(name), S)
         assert len(book.pages) == 52
         assert book.page_numbers
-        assert book.cover[1].type == "index"
+        assert [p.type for p in book.cover] == ["book_purpose", "index"]
 
 
 def test_fill_after_fixed_pages():
@@ -190,18 +190,45 @@ def test_plain_index_layout(tmp_path, is_right):
     tol = 2
     assert ys.min() >= px(S.margin_top) - tol and ys.max() <= m.shape[0] - px(S.margin_bottom) + tol
     assert xs.min() >= px(box.x0) - tol and xs.max() <= px(box.x1) + tol
-    # 28 strips per column: count the vertical strip boundaries along a scan row
+    # 26 strips per column, exactly one grid cell wide: count the boundaries
+    g = box.grid_area()
     col = m[px(S.margin_top) + px(10)]                        # inside the upper column
     edges = np.count_nonzero(np.diff(col.astype(int)) == 1)
-    assert edges >= 29
+    assert edges >= 27
+    assert xs.max() - xs.min() <= px(26 * g.cell) + 6         # no wider than 26 cells
+
+
+def test_book_purpose_text_and_tint(tmp_path):
+    book = build_book(load_recipe("lined"), S)
+    build_folder(book, tmp_path / "out", S)
+    text = PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text()
+    for word in ("for:", "started", "p13", "p26", "p39", "done"):
+        assert word in text
+
+
+@pytest.mark.parametrize("is_right", [True, False])
+def test_book_purpose_layout(tmp_path, is_right):
+    m = render(get_page_type("book_purpose"), is_right, tmp_path / "b.pdf")
+    box = PageBox(S, is_right)
+    ys, xs = np.where(m)
+    tol = 2
+    assert ys.min() >= px(S.margin_top) - tol and ys.max() <= m.shape[0] - px(S.margin_bottom) + tol
+    assert xs.min() >= px(box.x0) - tol and xs.max() <= px(box.x1) + tol
+    g = box.grid_area()
+    # the rest of the page is lined: a ruled row near the bottom spans the width
+    rows_with_lines = [r for r in range(m.shape[0] - px(g.y0) - px(3 * g.cell), m.shape[0] - px(g.y0) + 2)
+                       if m[r, px(g.x0) + 4: px(g.x1) - 4].all()]
+    assert rows_with_lines
 
 
 def test_plain_index_has_only_numbers(tmp_path):
-    book = build_book(load_recipe("lined"), S)
-    build_folder(book, tmp_path / "out", S)
-    words = PdfReader(str(tmp_path / "out/cover.pdf")).pages[0].extract_text().split()
-    assert sorted(w for w in words if w.isdigit()) == sorted(str(n) for n in range(1, 53))
-    assert all(w.isdigit() for w in words)                    # no other labels
+    pdf = tmp_path / "i.pdf"
+    d = Draw(pdf, S.page_w, S.page_h, S)
+    get_page_type("index")(d, PageBox(S, True), PageContext(1, 52, S))
+    d.next_page()
+    d.save()
+    words = PdfReader(str(pdf)).pages[0].extract_text().split()
+    assert sorted(words, key=int) == [str(n) for n in range(1, 53)]   # no other labels
 
 
 # ---- entry point --------------------------------------------------------------
@@ -421,13 +448,13 @@ def test_week_page_header_and_dates(tmp_path):
     pdf = tmp_path / "y.pdf"
     write_pages_pdf(book, pdf, S)
     text = PdfReader(str(pdf)).pages[5].extract_text()      # week 6: Jan 31 - Feb 6
-    assert "Jan / Feb" in text and "FEB" in text
+    assert "JAN / FEB" in text and "FEB" in text
     assert "WEEK" not in text and "2027" not in text        # number and month only
     assert text.split().count("6") >= 2                     # page number, and Feb 6
     for day in ("31", "1", "2", "3", "4", "5", "6"):
         assert day in text.split()
     one_month = PdfReader(str(pdf)).pages[27].extract_text()   # week 28: Jul 4 - 10
-    assert "July" in one_month
+    assert "JULY" in one_month
 
 
 def test_week_page_has_only_the_rail_style():
@@ -525,8 +552,8 @@ def test_partial_week_reflection_dates(tmp_path):
     pages = PdfReader(str(pdf)).pages
     first = next(i for i, p in enumerate(book.pages) if p.type == "week_reflection")
     last = max(i for i, p in enumerate(book.pages) if p.type == "week_reflection")
-    assert "Mar 1-6" in pages[first].extract_text()       # not Feb 28
-    assert "Mar 28-31" in pages[last].extract_text()      # not Apr 3
+    assert "MAR 1-6" in pages[first].extract_text()       # not Feb 28
+    assert "MAR 28-31" in pages[last].extract_text()      # not Apr 3
 
 
 def test_questions_and_idea_pages_draw(tmp_path):

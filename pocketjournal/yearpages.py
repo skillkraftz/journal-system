@@ -106,11 +106,11 @@ def week(d: Draw, box: PageBox, ctx: PageContext) -> None:
 
 
 def _month_label(days) -> str:
-    """"July", or "Jun / Jul" when the week spans two months."""
+    """"JULY", or "JUN / JUL" when the week spans two months."""
     months = list(dict.fromkeys(day.month for day in days))
     if len(months) == 1:
-        return calendar.month_name[months[0]]
-    return " / ".join(calendar.month_abbr[m] for m in months)
+        return calendar.month_name[months[0]].upper()
+    return " / ".join(MONTH_NAMES[m - 1] for m in months)
 
 
 def _rail_label(d: Draw, s, cx: float, top: float, day: dt.date) -> None:

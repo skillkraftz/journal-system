@@ -59,6 +59,9 @@ def lined(d: Draw, box: PageBox, ctx: PageContext) -> None:
         draw_header(d, box, ctx, str(ctx.params["label"]))
     for row in range(g.rows + 1):
         d.line(g.x0, g.y(row), g.x1, g.y(row), s.rule_weight, s.rule_gray)
+    if ctx.params.get("label"):                      # the header rule every headed page has
+        d.line(g.x0, g.y1 - HEADER_ROWS * g.cell, g.x1, g.y1 - HEADER_ROWS * g.cell,
+               s.structure_weight)
 
 
 @page_type("dots")

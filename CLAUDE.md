@@ -68,6 +68,10 @@ So the final page is **3.5" x 5.5" (88.9 x 139.7 mm)**, and on the sheet:
       12  MON OCT 26  |spine|  TUE OCT 27  13
 
   Page types draw their identity with `draw_header`; the book draws the number.
+- **Conventions across pages**: header identities are all caps ("JUNE",
+  "JUN / JUL", "WEEK 10 MAR 1-6", "SAT MAR 6"). Every page with a header gets
+  the same thin black rule under it. Prompt labels are small gray regular-weight
+  text, never bold black; bold is for page numbers and identities.
 - **Labels**: small labels that make a page self-explanatory are good
   ("Activity:", "hrs sleep", "times"). Run them in whichever direction saves
   space, including vertical. No labels on rows that are just writing lines in

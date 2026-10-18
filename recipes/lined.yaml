@@ -1,10 +1,10 @@
-# A 52-page notebook of 3 mm ruled lines, with an index on the inside back cover.
+# A 52-page notebook of 3 mm ruled lines, with a purpose page inside the front cover and an index inside the back.
 name: lined
 title: Lined notebook
 page_numbers: true
 
 cover:
-  front: blank
+  front: book_purpose
   back: index
 
 pages: []                 # nothing fixed ...
