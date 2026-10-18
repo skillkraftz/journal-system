@@ -35,7 +35,7 @@ Each book gets its own folder under `build/` with `print-first.pdf`,
 
 A recipe is a YAML file in `recipes/`. Its file name is the book's name on the
 command line. Nothing else needs code, as long as the page types exist
-(`blank`, `lined` (optional `params: {label: ...}` for the header), `dots`, `index`, the year journal's `week`, `year_goals`,
+(`blank`, `lined` (optional `params: {label: ...}` for the header), `dots`, `index`, `book_purpose`, the year journal's `week`, `year_goals`,
 `year_index`, and the monthly journal's `daily`, `week_reflection`,
 `month_review`, `questions`, `idea`, `monthly_tracker`, `page_index`; see `pocketjournal/pagetypes.py`).
 
@@ -143,7 +143,10 @@ turn clockwise.
 
 ## Plain books
 
-`lined` and `dots` end with the `index` page type: the same sideways two-column
-style as the year journal's covers, 26 pages per column plus a date field
-("goal post") after pages 13, 26, 39 and 52 for when you reached that point.
-Page 26, the center spread at the stitches, is tinted and its number bold.
+`lined` and `dots` split the job between the two covers, like the year journal.
+Inside front cover, `book_purpose`: a "for:" label over a few writing lines,
+one row of date fields for the goal posts (started, p13, p26, p39, done; p26,
+the center spread at the stitches, is tinted), and light 3 mm lines below.
+Inside back cover, `index`: the sideways two-column style of the year
+journal's covers, 26 strips per column at exactly 3 mm, with a slightly darker
+line after pages 13, 26 and 39.

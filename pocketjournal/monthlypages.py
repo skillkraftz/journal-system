@@ -233,7 +233,7 @@ def daily(d: Draw, box: PageBox, ctx: PageContext) -> None:
 # =============================================================================
 
 def _span(ctx: PageContext) -> str:
-    """The week's dates inside the month, like "Mar 1-6" (a week can start in
+    """The week's dates inside the month, like "MAR 1-6" (a week can start in
     the month before or end in the month after; those days are not shown)."""
     last = calendar.monthrange(ctx.year, ctx.month)[1] if ctx.month else None
     first_day, last_day = ctx.date, ctx.date + dt.timedelta(days=6)
@@ -241,9 +241,9 @@ def _span(ctx: PageContext) -> str:
         first_day = max(first_day, dt.date(ctx.year, ctx.month, 1))
         last_day = min(last_day, dt.date(ctx.year, ctx.month, last))
     if first_day.month == last_day.month:
-        return f"{calendar.month_abbr[first_day.month]} {first_day.day}-{last_day.day}"
-    return (f"{calendar.month_abbr[first_day.month]} {first_day.day}-"
-            f"{calendar.month_abbr[last_day.month]} {last_day.day}")
+        return f"{MONTH_NAMES[first_day.month - 1]} {first_day.day}-{last_day.day}"
+    return (f"{MONTH_NAMES[first_day.month - 1]} {first_day.day}-"
+            f"{MONTH_NAMES[last_day.month - 1]} {last_day.day}")
 
 
 @page_type("week_reflection")
@@ -328,7 +328,7 @@ def idea(d: Draw, box: PageBox, ctx: PageContext) -> None:
     r = HEADER_ROWS
     d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
     for label, hint, lines in IDEA_PROMPTS:
-        d.text(g.x0 + 0.8, _text_base(row(r + 1)), label, s.font_label, bold=True)
+        d.text(g.x0 + 0.8, _text_base(row(r + 1)), label, s.font_label, gray=0.4)
         if hint:
             d.text(g.x1, _text_base(row(r + 1)), hint, s.font_label, gray=0.55, anchor="r")
         _rules(d, s, g, g.x0, g.x1, r + 1, r + 1 + lines)
