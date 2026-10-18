@@ -11,7 +11,7 @@ from pocketjournal.book import build_book as build_folder, write_pages_pdf
 from pocketjournal.config import DEFAULT as S
 from pocketjournal.draw import Draw
 from pocketjournal.page import PageBox, PageContext
-from pocketjournal.pagetypes import draw_page_number, get_page_type
+from pocketjournal.pagetypes import draw_header, draw_page_number, get_page_type
 from pocketjournal.recipe import (RecipeError, build_book, list_recipes,
                                   load_recipe, parse_recipe)
 
@@ -121,17 +121,53 @@ def px(mm):
     return int(round(mm * 300 / 25.4))
 
 
-def test_page_number_in_bottom_outer_margin(tmp_path):
+def header_row_px(is_right):
+    """(top, bottom) pixel rows of the header row (the top grid row)."""
+    g = PageBox(S, is_right).grid_area()
+    return px(S.page_h - g.y1), px(S.page_h - (g.y1 - S.grid))
+
+
+def test_page_number_in_top_outer_corner(tmp_path):
     for is_right in (True, False):
         m = render(draw_page_number, is_right, tmp_path / f"n{is_right}.pdf")
         ys, xs = np.where(m)
         h, w = m.shape
-        assert ys.min() >= h - px(S.margin_bottom)          # inside the bottom margin
-        box = PageBox(S, is_right)
+        g, (top, bottom) = PageBox(S, is_right).grid_area(), header_row_px(is_right)
+        assert ys.min() >= top - 2 and ys.max() <= bottom + 2      # inside the header row
         if is_right:
-            assert xs.max() <= px(box.x1) + 2 and xs.min() > w / 2
+            assert xs.max() <= px(g.x1) + 2 and xs.min() > w / 2
         else:
-            assert xs.min() >= px(box.x0) - 2 and xs.max() < w / 2
+            assert xs.min() >= px(g.x0) - 2 and xs.max() < w / 2
+
+
+def test_header_identity_is_by_the_spine(tmp_path):
+    for is_right in (True, False):
+        def identity_only(d, box, ctx):
+            draw_header(d, box, ctx, "WEEK 45")
+        m = render(identity_only, is_right, tmp_path / f"h{is_right}.pdf")
+        ys, xs = np.where(m)
+        h, w = m.shape
+        g, (top, bottom) = PageBox(S, is_right).grid_area(), header_row_px(is_right)
+        assert ys.min() >= top - 2 and ys.max() <= bottom + 2
+        if is_right:                                   # gutter is on the left
+            assert xs.min() <= px(g.x0) + 2 and xs.max() < w / 2 + px(40)
+        else:
+            assert xs.max() >= px(g.x1) - 2 and xs.min() > w / 2 - px(40)
+
+
+@pytest.mark.parametrize("recipe_name,args", [("monthly", (2026, 10)), ("year", (2027,)),
+                                              ("lined", ())])
+def test_page_numbers_only_in_top_row(tmp_path, recipe_name, args):
+    """Numbers are in the top outer corner of every page, nothing at the bottom."""
+    book = build_book(load_recipe(recipe_name), S, *args)
+    pdf = tmp_path / "b.pdf"
+    write_pages_pdf(book, pdf, S)
+    for n, page in enumerate(PdfReader(str(pdf)).pages, 1):
+        seen = []
+        page.extract_text(visitor_text=lambda text, cm, tm, fd, fs, seen=seen:
+                          seen.append((tm[5] / MM, text.strip())) if text.strip() == str(n) else None)
+        ys = [y for y, _ in seen]
+        assert ys and max(ys) > S.page_h - S.margin_top - 2 * S.grid, f"page {n}: {seen}"
 
 
 def test_numbers_only_where_asked(tmp_path):
@@ -202,8 +238,102 @@ def test_missing_year_is_an_error(tmp_path, monthly_dir):
         cli.main(["build", "days", "--recipes", str(monthly_dir), "--out", str(tmp_path)])
 
 
-def test_all_means_undated(monthly_dir):
+def test_undated_lists_plain_books(monthly_dir):
     assert cli.undated(monthly_dir) == ["plain"]
+
+
+def run_cli(argv, ask=None):
+    cli.main(argv, ask=ask)
+
+
+def test_flags_without_book_ask_only_for_the_book(tmp_path, monthly_dir):
+    asked = []
+    def ask(prompt):
+        asked.append(prompt)
+        return "days"
+    run_cli(["build", "--year", "2027", "--all-months", "--recipes", str(monthly_dir),
+             "--out", str(tmp_path)], ask=ask)
+    assert len(asked) == 1 and asked[0].startswith("Which book")   # nothing else asked
+    assert len(list(tmp_path.glob("days-2027-*"))) == 12           # flags were kept
+
+
+def test_missing_year_asks_only_for_year(tmp_path, monthly_dir):
+    asked = []
+    def ask(prompt):
+        asked.append(prompt)
+        return "2027"
+    run_cli(["build", "days", "--month", "3", "--recipes", str(monthly_dir),
+             "--out", str(tmp_path)], ask=ask)
+    assert [a.split(" [")[0] for a in asked] == ["Year"]
+    assert (tmp_path / "days-2027-03").is_dir()
+
+
+def test_missing_things_without_a_keyboard_are_one_sentence(tmp_path, monthly_dir, capsys):
+    for argv, expect in (
+            (["build", "--year", "2027"], "Add a book name"),
+            (["build", "days", "--all-months"], "add --year YYYY"),
+            (["build", "days", "--year", "2027"], "add --month 1-12 or --all-months")):
+        with pytest.raises(SystemExit):
+            run_cli([*argv, "--recipes", str(monthly_dir), "--out", str(tmp_path)])
+        err = capsys.readouterr().err.strip()
+        assert expect in err and err.count("\n") == 0 and err.count(". ") == 0
+    assert not list(tmp_path.glob("days*"))
+
+
+@pytest.mark.parametrize("argv,expect", [
+    (["build", "days", "--year", "2027", "--month", "3", "--all-months"], "not both"),
+    (["build", "days", "--year", "2027", "--month", "13"], "from 1 to 12"),
+    (["build", "plain", "--year", "2027"], "remove --year"),
+    (["build", "plain", "--month", "3"], "remove --month/--all-months"),
+    (["build", "nope", "--year", "2027"], "no book called 'nope'"),
+])
+def test_conflicting_flags_say_what_to_change(tmp_path, monthly_dir, capsys, argv, expect):
+    with pytest.raises(SystemExit):
+        run_cli([*argv, "--recipes", str(monthly_dir), "--out", str(tmp_path)])
+    err = capsys.readouterr().err
+    assert expect in err and len(err.strip().splitlines()) == 1
+
+
+def test_build_all_makes_every_book_and_every_month(tmp_path, monthly_dir):
+    run_cli(["build", "all", "--year", "2027", "--recipes", str(monthly_dir),
+             "--out", str(tmp_path)])
+    assert sorted(p.name for p in tmp_path.iterdir() if p.name != "recipes") == \
+        sorted(["plain", *[f"days-2027-{m:02d}" for m in range(1, 13)]])
+
+
+def test_build_all_real_recipes_plan():
+    req, _ = cli.resolve(cli.Given(["all"], 2027), S, ask=None)
+    folders = [f.name for *_, f in cli.build_folders(req, S)]
+    assert folders.count("year-2027") == 1
+    assert [f for f in folders if f.startswith("monthly")] == \
+        [f"monthly-2027-{m:02d}" for m in range(1, 13)]
+    assert "lined" in folders and "dots" in folders
+
+
+def test_build_all_with_month_builds_just_that_month():
+    req, _ = cli.resolve(cli.Given(["all"], 2027, [3], True), S, ask=None)
+    assert [f.name for *_, f in cli.build_folders(req, S)
+            if f.name.startswith("monthly")] == ["monthly-2027-03"]
+
+
+def test_build_all_needs_a_year(monthly_dir, capsys):
+    with pytest.raises(SystemExit):
+        run_cli(["build", "all", "--recipes", str(monthly_dir)])
+    assert "add --year YYYY" in capsys.readouterr().err
+
+
+def test_previews_command(tmp_path):
+    out = tmp_path / "pv"
+    out.mkdir()
+    (out / "stale.png").write_bytes(b"x")
+    run_cli(["previews", "--dir", str(out)])
+    names = {p.name for p in out.glob("*.png")}
+    assert "stale.png" not in names
+    from pocketjournal.pagetypes import PAGE_TYPES
+    for t in PAGE_TYPES:
+        assert t == "blank" or f"page-{t}.png" in names
+    for book in ("lined", "dots", "year", "monthly"):
+        assert {f"{book}-contact-sheet.png", f"{book}-cover.png"} <= names
 
 
 def answers(*replies):
@@ -265,11 +395,10 @@ def test_year_recipe():
         build_book(load_recipe("year"), S)
 
 
-@pytest.mark.parametrize("style", ["rail", "corner", "strip"])
 @pytest.mark.parametrize("is_right", [True, False])
-def test_year_pages_stay_in_margins(tmp_path, style, is_right):
+def test_year_pages_stay_in_margins(tmp_path, is_right):
     box = PageBox(S, is_right)
-    ctx = PageContext(7, 52, S, {"style": style}, calendars.week_start(2027, 6), 2027, None, 6)
+    ctx = PageContext(7, 52, S, {}, calendars.week_start(2027, 6), 2027, None, 6)
     for name in ("week", "year_goals", "year_index"):
         path = tmp_path / f"{name}.pdf"
         d = Draw(path, S.page_w, S.page_h, S)
@@ -287,18 +416,25 @@ def test_year_pages_stay_in_margins(tmp_path, style, is_right):
         assert not m[:, w - px(box.margin_right) + tol:].any()
 
 
-def test_week_page_dates_and_unknown_style(tmp_path):
+def test_week_page_header_and_dates(tmp_path):
     book = build_book(load_recipe("year"), S, 2027)
     pdf = tmp_path / "y.pdf"
     write_pages_pdf(book, pdf, S)
     text = PdfReader(str(pdf)).pages[5].extract_text()      # week 6: Jan 31 - Feb 6
-    assert "WEEK 6" in text and "JAN / FEB" in text and "FEB" in text
+    assert "Jan / Feb" in text and "FEB" in text
+    assert "WEEK" not in text and "2027" not in text        # number and month only
+    assert text.split().count("6") >= 2                     # page number, and Feb 6
     for day in ("31", "1", "2", "3", "4", "5", "6"):
         assert day in text.split()
-    with pytest.raises(ValueError, match="style"):
-        ctx = PageContext(1, 52, S, {"style": "nope"}, dt.date(2027, 1, 3), 2027, None, 1)
-        get_page_type("week")(Draw(tmp_path / "x.pdf", S.page_w, S.page_h, S),
-                              PageBox(S, True), ctx)
+    one_month = PdfReader(str(pdf)).pages[27].extract_text()   # week 28: Jul 4 - 10
+    assert "July" in one_month
+
+
+def test_week_page_has_only_the_rail_style():
+    for gone in ("style", "WEEK_STYLES"):
+        import pocketjournal.yearpages as yp
+        assert not hasattr(yp, gone)
+    assert "style" not in (Path(__file__).parent.parent / "recipes/year.yaml").read_text()
 
 
 def test_rail_leaves_room_for_a_postit():
@@ -389,8 +525,8 @@ def test_partial_week_reflection_dates(tmp_path):
     pages = PdfReader(str(pdf)).pages
     first = next(i for i, p in enumerate(book.pages) if p.type == "week_reflection")
     last = max(i for i, p in enumerate(book.pages) if p.type == "week_reflection")
-    assert "Mar 1 - Mar 6" in pages[first].extract_text()       # not Feb 28
-    assert "Mar 28 - Mar 31" in pages[last].extract_text()      # not Apr 3
+    assert "Mar 1-6" in pages[first].extract_text()       # not Feb 28
+    assert "Mar 28-31" in pages[last].extract_text()      # not Apr 3
 
 
 def test_questions_and_idea_pages_draw(tmp_path):
@@ -399,7 +535,7 @@ def test_questions_and_idea_pages_draw(tmp_path):
     write_pages_pdf(book, pdf, S)
     pages = PdfReader(str(pdf)).pages
     q = next(i for i, p in enumerate(book.pages) if p.type == "questions")
-    assert "questions" in pages[q].extract_text() and "patterns" in pages[q - 1].extract_text()
+    assert "QUESTIONS" in pages[q].extract_text() and "REVIEW" in pages[q - 1].extract_text()
     text = pages[next(i for i, p in enumerate(book.pages) if p.type == "idea")].extract_text()
     for label in ("Idea:", "Problem it solves:", "Who it's for:", "Smallest test:", "Next step:"):
         assert label in text

@@ -23,7 +23,10 @@ pages:
 
 fill:
   spread: [idea, dots]     # idea helper on the left, dot grid to sketch on the right
-  align: lined             # one lined page if the next page would be a right one
+  align:                   # one lined page if the next page would be a right one
+    type: lined
+    params: {label: NOTES}
   end:
     type: lined            # the book closes with these lined pages
+    params: {label: NOTES}
     repeat: 3              # (one more when the spreads leave a page over)

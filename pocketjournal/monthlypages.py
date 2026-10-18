@@ -13,7 +13,7 @@ from reportlab.pdfbase import pdfmetrics
 from . import calendars
 from .draw import Draw
 from .page import PageBox, PageContext
-from .pagetypes import index_label, page_type
+from .pagetypes import HEADER_ROWS, draw_header, index_label, page_type
 from .yearpages import DAY_NAMES, MONTH_NAMES, _cap, _text_base
 
 # ---- Tracker settings -----------------------------------------------------------
@@ -23,9 +23,9 @@ NAME_ROWS = 7                # grid rows above the days for vertical habit names
 TIME_ROWS = 5                # grid rows below the days for vertical times
 TRACKER_DAYS = 31            # rows reserved for days, so every month lines up
 TRACKER_FONT = 6.0           # day numbers must fit a 3 mm column
+WEEKEND_TINT = 0.965         # very faint gray behind weekend rows (None = off)
 
 # ---- Daily page settings ----------------------------------------------------------
-DAILY_HEADER_ROWS = 2
 ENTRIES = 3                  # activity entries per day
 ENTRY_ROWS = 6               # grid rows per entry
 WRITE_COLS = 15              # grid columns of writing area; two 6-column dials follow
@@ -62,10 +62,14 @@ IDEA_PROMPTS = [
 ]
 
 
-def _month_title(ctx: PageContext) -> str:
+def _month_of(ctx: PageContext) -> int:
     if ctx.year is None or ctx.month is None:
         raise ValueError("this page needs a year and a month")
-    return f"{calendar.month_name[ctx.month].upper()} {ctx.year}"
+    return ctx.month
+
+
+def _month_title(ctx: PageContext) -> str:
+    return f"{calendar.month_name[_month_of(ctx)].upper()} {ctx.year}"
 
 
 def _rules(d: Draw, s, g, x0: float, x1: float, row_from: int, row_to: int) -> None:
@@ -104,9 +108,11 @@ def monthly_tracker(d: Draw, box: PageBox, ctx: PageContext) -> None:
 
     d.text(g.x0, g.y1 - 2.4, title, s.font_heading, bold=True)
 
-    # weekend tint behind the date and weekday cells
+    # weekend tint: faint across the whole row, stronger behind date and weekday
     for i, day in enumerate(days):
         if day.weekday() >= 5:
+            if WEEKEND_TINT is not None:
+                d.fill_rect(x(DATE), top - (i + 1) * cell, g.x1 - x(DATE), cell, WEEKEND_TINT)
             d.fill_rect(x(DATE), top - (i + 1) * cell, 2 * cell, cell, s.tint_gray)
 
     # horizontal lines: one per row, a darker one after every Saturday
@@ -141,8 +147,13 @@ def monthly_tracker(d: Draw, box: PageBox, ctx: PageContext) -> None:
     d.text(x(SLEEP) + cell / 2 + _cap(s.font_label) / 2, top + 1.0, "hrs sleep",
            s.font_label, gray=0.4, rotate=90)
     d.text(x(A0) + 0.8, top + 0.7, "appointments", s.font_label, gray=0.4)
-    d.text(x(SLEEP) + 0.8, times_top - 1.5 * cell - _cap(s.font_label) / 2,
-           "times", s.font_label, gray=0.4)
+    # habits and times share the weekday column: what is done daily above,
+    # when each is scheduled below
+    d.text(x(WDAY) + cell / 2 + _cap(s.font_label) / 2, top + 1.0, "habits",
+           s.font_label, gray=0.4, rotate=90)
+    times_w = pdfmetrics.stringWidth("times", s.font_regular, s.font_label) / MM
+    d.text(x(WDAY) + cell / 2 + _cap(s.font_label) / 2, times_top - 1.0 - times_w, "times",
+           s.font_label, gray=0.4, rotate=90)
 
 
 # =============================================================================
@@ -184,7 +195,7 @@ def _dial(d: Draw, s, cx: float, base: float, kind: str) -> None:
 
 @page_type("daily")
 def daily(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """A Good Time Journal day: the date, three activity entries (a short
+    """A Good Time Journal day: the date in the header, three activity entries (a short
     writing area, the Engagement dial with a Flow checkbox, the Energy dial),
     then 3 mm journal lines for the rest of the page."""
     if ctx.date is None:
@@ -194,45 +205,51 @@ def daily(d: Draw, box: PageBox, ctx: PageContext) -> None:
     row = lambda n: g.y1 - n * cell                      # y of the line n rows from the top
 
     day = ctx.date
-    d.text(g.x0, g.y1 - 2.4,
-           f"{DAY_NAMES[(day.weekday() + 1) % 7]} {MONTH_NAMES[day.month - 1]} {day.day}",
-           s.font_heading, bold=True)
-    d.text(g.x1, _text_base(row(2)), str(day.year), s.font_label, gray=0.4, anchor="r")
+    draw_header(d, box, ctx,
+                f"{DAY_NAMES[(day.weekday() + 1) % 7]} {MONTH_NAMES[day.month - 1]} {day.day}")
 
     writing_x1 = g.x(WRITE_COLS)
     engage_cx = g.x(WRITE_COLS + DIAL_COLS / 2)
     energy_cx = g.x(WRITE_COLS + DIAL_COLS * 1.5)
     for n in range(ENTRIES):
-        first = DAILY_HEADER_ROWS + n * ENTRY_ROWS
+        first = HEADER_ROWS + n * ENTRY_ROWS
         bottom = row(first + ENTRY_ROWS)
         d.line(g.x0, row(first), g.x1, row(first), s.structure_weight)
         _rules(d, s, g, g.x0, writing_x1, first, first + ENTRY_ROWS)
         d.line(writing_x1, bottom, writing_x1, row(first), s.rule_weight, s.separator_gray)
-        d.text(g.x0 + 0.8, _text_base(row(first + 1)), str(n + 1), s.font_label, bold=True)
+        d.text(g.x0 + 0.8, _text_base(row(first + 1)), "Activity:", s.font_label, gray=0.4)
+        d.text(g.x0 + 0.8, _text_base(row(first + 3)), "Reflections:", s.font_label, gray=0.4)
         base = bottom + 7.0
         _dial(d, s, engage_cx, base, "engage")
         _dial(d, s, energy_cx, base, "energy")
-    journal_top = DAILY_HEADER_ROWS + ENTRIES * ENTRY_ROWS
+    journal_top = HEADER_ROWS + ENTRIES * ENTRY_ROWS
     d.line(g.x0, row(journal_top), g.x1, row(journal_top), s.structure_weight)
     _rules(d, s, g, g.x0, g.x1, journal_top, g.rows)
-    d.line(g.x0, row(DAILY_HEADER_ROWS), g.x1, row(DAILY_HEADER_ROWS), s.structure_weight)
+    d.line(g.x0, row(HEADER_ROWS), g.x1, row(HEADER_ROWS), s.structure_weight)
 
 
 # =============================================================================
 # Weekly reflection, month end
 # =============================================================================
 
-def _span(sunday, saturday) -> str:
-    return (f"{calendar.month_abbr[sunday.month]} {sunday.day} - "
-            f"{calendar.month_abbr[saturday.month]} {saturday.day}")
+def _span(ctx: PageContext) -> str:
+    """The week's dates inside the month, like "Mar 1-6" (a week can start in
+    the month before or end in the month after; those days are not shown)."""
+    last = calendar.monthrange(ctx.year, ctx.month)[1] if ctx.month else None
+    first_day, last_day = ctx.date, ctx.date + dt.timedelta(days=6)
+    if ctx.month is not None:
+        first_day = max(first_day, dt.date(ctx.year, ctx.month, 1))
+        last_day = min(last_day, dt.date(ctx.year, ctx.month, last))
+    if first_day.month == last_day.month:
+        return f"{calendar.month_abbr[first_day.month]} {first_day.day}-{last_day.day}"
+    return (f"{calendar.month_abbr[first_day.month]} {first_day.day}-"
+            f"{calendar.month_abbr[last_day.month]} {last_day.day}")
 
 
 @page_type("week_reflection")
 def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
     """Placed after a Saturday, or after the month's last day. ctx.date is the
-    week's Sunday, ctx.week its year-journal number (blank for the December
-    days the year journal drops). The dates shown are the week's days that fall
-    inside the month.
+    week's Sunday, ctx.week its year-journal number (blank for the December days the year journal drops).
     Prompts are small gray labels over writing lines; the top and low entries
     get one line per AEIOU letter."""
     if ctx.date is None:
@@ -240,23 +257,14 @@ def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
     s, g = ctx.settings, box.grid_area()
     cell = g.cell
     row = lambda n: g.y1 - n * cell
-    first, saturday = ctx.date, ctx.date + dt.timedelta(days=6)
-    if ctx.month is not None:                  # only the days that are in this month
-        first = max(first, dt.date(ctx.year, ctx.month, 1))
-        saturday = min(saturday, dt.date(ctx.year, ctx.month,
-                                         calendar.monthrange(ctx.year, ctx.month)[1]))
 
-    d.text(g.x0, g.y1 - 2.4, f"WEEK {ctx.week}" if ctx.week else "WEEK",
-           s.font_heading, bold=True)
-    d.text(g.x1, g.y1 - 2.4, "reflection", s.font_label, gray=0.4, anchor="r")
-    d.text(g.x0, _text_base(row(2)), _span(first, saturday), s.font_label, gray=0.4)
-    d.text(g.x1, _text_base(row(2)), str(saturday.year), s.font_label, gray=0.4, anchor="r")
+    draw_header(d, box, ctx, f"{'WEEK ' + str(ctx.week) if ctx.week else 'WEEK'}  {_span(ctx)}")
 
     sections = list(REFLECTION)
-    used = DAILY_HEADER_ROWS + sum(1 + n + (len(AEIOU) - n if p in AEIOU_PROMPTS else 0)
+    used = HEADER_ROWS + sum(1 + n + (len(AEIOU) - n if p in AEIOU_PROMPTS else 0)
                                    for p, n in sections)
     sections[0] = (sections[0][0], sections[0][1] + g.rows - used)
-    r = DAILY_HEADER_ROWS
+    r = HEADER_ROWS
     d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
     for prompt, lines in sections:
         n = len(AEIOU) if prompt in AEIOU_PROMPTS else lines
@@ -273,12 +281,11 @@ def week_reflection(d: Draw, box: PageBox, ctx: PageContext) -> None:
 
 @page_type("month_review")
 def month_review(d: Draw, box: PageBox, ctx: PageContext) -> None:
-    """Month end: patterns & takeaways, as two halves of writing lines."""
+    """Month end: patterns, then takeaways, as two halves of writing lines."""
     s, g = ctx.settings, box.grid_area()
     row = lambda n: g.y1 - n * g.cell
-    d.text(g.x0, g.y1 - 2.4, _month_title(ctx), s.font_heading, bold=True)
-    d.text(g.x1, g.y1 - 2.4, "month end", s.font_label, gray=0.4, anchor="r")
-    r = DAILY_HEADER_ROWS
+    draw_header(d, box, ctx, f"{calendar.month_name[_month_of(ctx)].upper()} REVIEW")
+    r = HEADER_ROWS
     half = (g.rows - r) // 2
     for name, rows in (("patterns", half), ("takeaways", g.rows - r - half)):
         d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
@@ -294,22 +301,19 @@ def questions(d: Draw, box: PageBox, ctx: PageContext) -> None:
     reading notes are built around questions)."""
     s, g = ctx.settings, box.grid_area()
     row = lambda n: g.y1 - n * g.cell
-    d.text(g.x0, g.y1 - 2.4, _month_title(ctx), s.font_heading, bold=True)
-    d.text(g.x1, g.y1 - 2.4, "month end", s.font_label, gray=0.4, anchor="r")
-    d.text(g.x0, _text_base(row(2)), "questions", s.font_label, bold=True)
-    key_x = g.x1 - 2 * g.cell - pdfmetrics.stringWidth("= moved to a book", s.font_regular,
-                                                       s.font_label) / MM
-    _check(d, s, g, key_x, row(2) + (g.cell - CHECK_SIZE) / 2)
-    d.text(key_x + CHECK_SIZE + 1.0, _text_base(row(2)), "= moved to a book",
+    draw_header(d, box, ctx, f"{calendar.month_name[_month_of(ctx)].upper()} QUESTIONS")
+    d.line(g.x0, row(HEADER_ROWS), g.x1, row(HEADER_ROWS), s.structure_weight)
+    key = row(HEADER_ROWS + 1)                       # a key on the first row below the line
+    _check(d, key + (g.cell - CHECK_SIZE) / 2, g.x0 + (g.cell - CHECK_SIZE) / 2, s)
+    d.text(g.x0 + g.cell + 0.8, _text_base(key), "= moved to a book-notes journal",
            s.font_label, gray=0.4)
-    d.line(g.x0, row(DAILY_HEADER_ROWS), g.x1, row(DAILY_HEADER_ROWS), s.structure_weight)
-    for r in range(DAILY_HEADER_ROWS, g.rows - QUESTION_ROWS + 1, QUESTION_ROWS):
+    first = HEADER_ROWS + 1
+    for r in range(first, g.rows - QUESTION_ROWS + 1, QUESTION_ROWS):
         _rules(d, s, g, g.x0 + g.cell, g.x1, r, r + QUESTION_ROWS)
-        _check(d, s, g, g.x0 + (g.cell - CHECK_SIZE) / 2,
-               row(r + 1) + (g.cell - CHECK_SIZE) / 2)
+        _check(d, row(r + 1) + (g.cell - CHECK_SIZE) / 2, g.x0 + (g.cell - CHECK_SIZE) / 2, s)
 
 
-def _check(d: Draw, s, g, x: float, y: float) -> None:
+def _check(d: Draw, y: float, x: float, s) -> None:
     d.rect(x, y, CHECK_SIZE, CHECK_SIZE, s.structure_weight)
 
 
@@ -320,8 +324,8 @@ def idea(d: Draw, box: PageBox, ctx: PageContext) -> None:
     lines under it; what is left over becomes free lines."""
     s, g = ctx.settings, box.grid_area()
     row = lambda n: g.y1 - n * g.cell
-    d.text(g.x0, g.y1 - 2.4, "IDEA", s.font_heading, bold=True)
-    r = DAILY_HEADER_ROWS
+    draw_header(d, box, ctx, "IDEA")
+    r = HEADER_ROWS
     d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
     for label, hint, lines in IDEA_PROMPTS:
         d.text(g.x0 + 0.8, _text_base(row(r + 1)), label, s.font_label, bold=True)
@@ -330,9 +334,9 @@ def idea(d: Draw, box: PageBox, ctx: PageContext) -> None:
         _rules(d, s, g, g.x0, g.x1, r + 1, r + 1 + lines)
         r += 1 + lines
         d.line(g.x0, row(r), g.x1, row(r), s.structure_weight)
-    _rules(d, s, g, g.x0, g.x1, r, g.rows)
     if r + 1 > g.rows:
         raise ValueError("the idea prompts do not fit the page; lower their rows")
+    _rules(d, s, g, g.x0, g.x1, r, g.rows)
 
 
 # =============================================================================

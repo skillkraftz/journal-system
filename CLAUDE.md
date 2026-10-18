@@ -58,8 +58,24 @@ So the final page is **3.5" x 5.5" (88.9 x 139.7 mm)**, and on the sheet:
   gray and thin so handwriting stands out; structure (outlines, separators) is
   black. Avoid heavy boxes: labels are small text in a corner or margin, not
   boxed blocks. The look should be quiet and clean, not blocky.
-- **Page numbers** on every interior page of template books, small, in the
-  bottom outer corner, inside the margin.
+- **Page header**: every numbered interior page has a one-row header (the top
+  grid row) and nothing at the bottom. Top outer corner: the page number,
+  always, in every book (a recipe can still turn numbering off). Top inner
+  corner (by the spine): what the page is, such as the month on a weekly page
+  or the date on a daily page. An open spread reads like this:
+
+      30        July  |spine|  July        31
+      12  MON OCT 26  |spine|  TUE OCT 27  13
+
+  Page types draw their identity with `draw_header`; the book draws the number.
+- **Labels**: small labels that make a page self-explanatory are good
+  ("Activity:", "hrs sleep", "times"). Run them in whichever direction saves
+  space, including vertical. No labels on rows that are just writing lines in
+  a table or list.
+- **Density**: dense pages should pack a lot into a tight space and still look
+  clean enough to sell. The monthly tracker and the year index are the models.
+  The goal is that the owner never has to draw lines with a ruler for
+  something he sets up regularly.
 - Draw vector output directly (reportlab) at final size in millimeters. PNGs
   are for previews only.
 
@@ -71,11 +87,13 @@ inside front cover and inside back cover, printed single-sided on the cover
 paper and centered the same way.
 
 - **Year journal**: 52 weekly pages, weeks Sunday to Saturday. Each week has a
-  goal at the top, seven days, and an outcome at the bottom. The owner plans
+  goal at the top, seven days, and an outcome at the bottom (the `rail` layout:
+  dates in a narrow rail at the outer edge; header is the week number and
+  month). The owner plans
   one quarter at a time with full-size post-it notes stuck on future weeks.
   Inside front cover: the year's goals plus all 52 weeks in two sideways
   columns, with Q1-Q4 heading rows and one line per week for "how it went"
-  (week numbers get colored by outcome later). Inside back cover: an index
+  (week numbers get colored by outcome later); no labels on those lines. Inside back cover: an index
   with week boxes in two columns, where the open space is divided only at
   month boundaries.
 - **Monthly journal**: one per month, generated for a specific month and
@@ -86,8 +104,8 @@ paper and centered the same way.
   Interior: a dated daily Good Time Journal page per day (three activity
   entries with Engagement + Flow and Energy dials, then journal lines), weekly
   reflections that line up with the year journal's Sunday-Saturday weeks,
-  month-end review pages, then notes pages to fill out 52. The inside back
-  cover is not decided yet.
+  month-end pages (patterns & takeaways, questions), then ideas spreads and
+  a few lined pages to fill out 52. The inside back cover is a page index.
 - **Book notes**: a setup page per book (title; the question I want answered;
   sections I'm reading or ALL; what improves if I find the answer; what stays
   unsolved if I don't; what success looks like) followed by note pages
@@ -130,8 +148,10 @@ paper and centered the same way.
   new page types beyond the task. When a choice is unclear, take the simplest
   version and list the question in the PR description.
 - Keep code readable with settings at the top; the owner reads and tweaks it.
-- Include preview PNGs of new or changed pages in every PR that changes a
-  design.
+- Run `python -m pocketjournal previews` in every PR that changes a design and
+  commit the result, so `previews/` is never stale.
+- Flags on the command line are never discarded: missing choices are asked for
+  (only those), or named in one sentence when there is no keyboard.
 
 ## Commands
 
@@ -140,7 +160,9 @@ Setup: `pip install -e '.[dev]'` (reportlab, pypdfium2, pillow; pytest and pypdf
     python -m pocketjournal                          # asks questions, then builds
     python -m pocketjournal build [lined|dots|all]   # recipes/*.yaml -> build/<book>/
     python -m pocketjournal build lined --signatures 2 --thickness 0.12
+    python -m pocketjournal build all --year 2027    # every book, 12 monthly journals
     python -m pocketjournal calibrate                # -> build/calibration/
+    python -m pocketjournal previews                 # regenerate previews/
     python -m pytest                                 # tests
 
 Flags on both commands: `--out DIR`, `--thickness MM`, `--back-dx MM`, `--back-dy MM`.
