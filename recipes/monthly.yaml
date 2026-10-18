@@ -20,3 +20,4 @@ pages:
 
 fill:
   type: lined
+  params: {label: NOTES}

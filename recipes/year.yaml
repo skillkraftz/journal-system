@@ -12,5 +12,4 @@ cover:
 pages:
   - type: week
     each: week             # one page per week, 1-52
-    params:
-      style: rail          # rail | corner | strip (see README)
+
